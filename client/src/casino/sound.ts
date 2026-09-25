@@ -156,6 +156,13 @@ export const sfx = {
     burst({ freq: 2600, q: 3, dur: 0.05, vol: 0.5 });
     burst({ freq: 1200, q: 2, dur: 0.08, vol: 0.3, delay: 0.02 });
   },
+  /** lightning strike: sharp crack + rolling rumble */
+  thunder: () => {
+    burst({ freq: 5200, q: 0.8, dur: 0.09, vol: 0.55, type: 'highpass' });
+    for (let i = 0; i < 6; i++) burst({ freq: 2500 + Math.random() * 3000, q: 3, dur: 0.03, vol: 0.3, delay: 0.02 + i * 0.03 + Math.random() * 0.02 });
+    burst({ freq: 140, q: 0.4, dur: 1.4, vol: 0.8, type: 'lowpass', delay: 0.05, attack: 0.08 });
+    tone({ freq: 70, to: 38, type: 'sine', dur: 1.1, vol: 0.35, delay: 0.05 });
+  },
   pointer: () => burst({ freq: 5000, q: 8, dur: 0.02, vol: 0.18 }),
 };
 

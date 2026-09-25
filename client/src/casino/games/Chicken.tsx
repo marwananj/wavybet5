@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { usd } from '../../lib/format';
 import { casino, mult, type Round } from '../api';
 import { ChickenSprite } from '../Posters';
-import { BetAmount, GameShell, InfoRow, PlayButton, Seg, useBet, useCasinoConfig } from '../shared';
+import { ActionBar, BetAmount, GameShell, InfoRow, PlayButton, Seg, useBet, useCasinoConfig } from '../shared';
 import { resultSound, sfx } from '../sound';
 
 type Level = 'easy' | 'medium' | 'hard' | 'expert';
@@ -137,6 +137,7 @@ export function ChickenGame() {
               { v: 'expert', label: 'Expert' },
             ]}
           />
+          <ActionBar className={inPlay ? 'split' : ''}>
           {inPlay ? (
             <>
               <PlayButton busy={busy} onClick={() => act('step')}>
@@ -151,6 +152,7 @@ export function ChickenGame() {
               {v ? 'Play again' : 'Start'}
             </PlayButton>
           )}
+          </ActionBar>
           <InfoRow label="Lanes" value={cfg?.chicken[level]?.lanes ?? '—'} />
           <InfoRow label="Max multiplier" value={ladder.length ? mult(ladder[ladder.length - 1]) : '—'} />
         </>

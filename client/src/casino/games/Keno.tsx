@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { LuShuffle, LuTrash2 } from 'react-icons/lu';
 import { usd } from '../../lib/format';
 import { casino, mult, sleep } from '../api';
-import { BetAmount, GameShell, PlayButton, Seg, useBet, useCasinoConfig } from '../shared';
+import { ActionBar, BetAmount, GameShell, PlayButton, Seg, useBet, useCasinoConfig } from '../shared';
 import { resultSound, sfx } from '../sound';
 
 type Risk = 'easy' | 'medium' | 'hard' | 'expert';
@@ -105,9 +105,11 @@ export function KenoGame() {
               <LuTrash2 size={15} /> Clear
             </button>
           </div>
-          <PlayButton busy={busy} onClick={play} disabled={!picks.length}>
-            {picks.length ? `Bet · ${picks.length} pick${picks.length > 1 ? 's' : ''}` : 'Pick 1–10 numbers'}
-          </PlayButton>
+          <ActionBar>
+            <PlayButton busy={busy} onClick={play} disabled={!picks.length}>
+              {picks.length ? `Bet · ${picks.length} pick${picks.length > 1 ? 's' : ''}` : 'Pick 1–10 numbers'}
+            </PlayButton>
+          </ActionBar>
         </>
       }
       stage={

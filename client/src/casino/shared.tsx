@@ -49,7 +49,29 @@ export function useBet() {
   };
 }
 
+export function useMedia(query: string) {
+  const get = () => typeof window !== 'undefined' && !!window.matchMedia?.(query).matches;
+  const [m, setM] = useState(get);
+  useEffect(() => {
+    const mq = window.matchMedia?.(query);
+    if (!mq) return;
+    const on = () => setM(mq.matches);
+    on();
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, [query]);
+  return m;
+}
+
 /* ------------------------------ layout ------------------------------ */
+
+/**
+ * The game's main buttons. Sits in the controls panel on desktop; on phones it docks to the
+ * bottom of the screen (above the tab bar) so Bet / Cash out is always under the thumb.
+ */
+export function ActionBar({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={`action-bar ${className}`}>{children}</div>;
+}
 
 export function GameShell({
   game,
@@ -89,7 +111,7 @@ export function GameShell({
           {muted ? <LuVolumeX size={18} /> : <LuVolume2 size={18} />}
         </button>
         <button className="btn btn-ghost btn-sm fair-btn" onClick={() => setFair(true)}>
-          <LuShieldCheck size={16} /> Fairness
+          <LuShieldCheck size={16} /> <span className="hide-sm">Fairness</span>
         </button>
       </div>
       <div className="game-shell">

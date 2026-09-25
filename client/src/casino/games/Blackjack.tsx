@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { usd } from '../../lib/format';
 import { casino, type Card, type Round } from '../api';
-import { BetAmount, GameShell, PlayButton, PlayingCard, useBet } from '../shared';
+import { ActionBar, BetAmount, GameShell, PlayButton, PlayingCard, useBet } from '../shared';
 import { resultSound, sfx } from '../sound';
 
 interface Hand {
@@ -104,6 +104,7 @@ export function BlackjackGame() {
       controls={
         <>
           <BetAmount value={amount} onChange={setAmount} disabled={busy || inPlay} />
+          <ActionBar>
           {inPlay ? (
             <div className="bj-actions">
               <button className="btn btn-primary" disabled={!can('hit')} onClick={() => act('hit')}>
@@ -124,6 +125,7 @@ export function BlackjackGame() {
               {v?.finished ? 'Deal again' : 'Deal'}
             </PlayButton>
           )}
+          </ActionBar>
           <small className="muted">Blackjack pays 3:2 · Dealer stands on all 17s · Double on any two cards · One split</small>
         </>
       }

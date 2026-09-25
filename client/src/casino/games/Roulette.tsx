@@ -1,22 +1,27 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { LuUndo2, LuTrash2, LuRotateCcw } from 'react-icons/lu';
+import { LuUndo2, LuTrash2, LuRotateCcw, LuMinus, LuPlus, LuZap } from 'react-icons/lu';
 import { usd } from '../../lib/format';
 import { casino } from '../api';
-import { GameShell, InfoRow, PlayButton, useBet } from '../shared';
+import { ActionBar, GameShell, InfoRow, PlayButton, Seg, useBet, useMedia } from '../shared';
+import { ANNOUNCED, color, covered, HOTSPOTS, k as K, neighbours, ORDER, PAYS, RED, toApi, type BetKey } from '../rouletteBets';
+import { Racetrack } from './Racetrack';
 import { resultSound, rollLoop, sfx } from '../sound';
 
-const ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
-const RED = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
 const STEP = 360 / 37;
-const color = (n: number) => (n === 0 ? 'green' : RED.has(n) ? 'red' : 'black');
 const CHIPS = [0.1, 0.5, 1, 5, 10, 25, 100];
 
-type BetKey = string; // "straight:17" | "red" | "dozen:1" | "column:3" ...
+type Mode = 'classic' | 'thunder';
+interface Strike {
+  number: number;
+  multiplier: number;
+}
 interface RouletteResult {
   number: number;
   color: string;
   pocket: number;
   returned: number;
+  mode: Mode;
+  lucky: Strike[];
 }
 
 /* ─────────────────────────────── geometry ───────────────────────────────
@@ -36,7 +41,7 @@ const LIFT = 0.35; // dealer launches the ball from the pocket onto the track
 
 /* ─────────────────────────────── rotor art ────────────────────────────── */
 
-function RotorSvg({ win }: { win: number | null }) {
+function RotorSvg({ win, lucky }: { win: number | null; lucky: Map<number, number> }) {
   const C = 200;
   const pt = (deg: number, r: number) => {
     const a = (deg * Math.PI) / 180;
@@ -112,6 +117,15 @@ function RotorSvg({ win }: { win: number | null }) {
       })}
       <circle cx={C} cy={C} r="199" fill="none" stroke="url(#r3-gold)" strokeWidth="2.5" />
       <circle cx={C} cy={C} r="170" fill="none" stroke="url(#r3-gold)" strokeWidth="2.5" />
+      {[...lucky.keys()].map((n) => {
+        const i = ORDER.indexOf(n);
+        return (
+          <g key={`l${n}`} className="r3-lucky">
+            <path d={arc((i - 0.5) * STEP, (i + 0.5) * STEP, 132, 199)} fill="#ffd24a" opacity=".55" filter="url(#r3-glow)" />
+            <path d={arc((i - 0.5) * STEP, (i + 0.5) * STEP, 170, 199)} fill="none" stroke="#ffe28a" strokeWidth="3.5" />
+          </g>
+        );
+      })}
       {winIdx >= 0 && (
         <g className="r3-winglow">
           <path d={arc((winIdx - 0.5) * STEP, (winIdx + 0.5) * STEP, 128, 203)} fill="#ffe28a" opacity=".9" filter="url(#r3-glow)" />
@@ -274,9 +288,9 @@ function useWheel() {
   return { rotor, ball, shadow, spin };
 }
 
-function Wheel({ w, spinning, win }: { w: ReturnType<typeof useWheel>; spinning: boolean; win: number | null }) {
+function Wheel({ w, spinning, win, lucky, thunder }: { w: ReturnType<typeof useWheel>; spinning: boolean; win: number | null; lucky: Map<number, number>; thunder: boolean }) {
   return (
-    <div className={`rw3-scene ${spinning ? 'spinning' : ''} ${win != null && !spinning ? 'settled' : ''}`}>
+    <div className={`rw3-scene ${spinning ? 'spinning' : ''} ${win != null && !spinning ? 'settled' : ''} ${thunder ? 'thunder' : ''}`}>
       <div className="rw3-tilt">
         <Layers n={7} cls="rw3-edge" gap={2.6} />
         <div className="rw3-bowl">
@@ -285,7 +299,7 @@ function Wheel({ w, spinning, win }: { w: ReturnType<typeof useWheel>; spinning:
             <span key={i} className={`rw3-diamond ${i % 2 ? 'h' : 'v'}`} style={{ '--a': `${i * 45 + 22.5}deg` } as CSSProperties} />
           ))}
           <div className="rw3-rotor" ref={w.rotor}>
-            <RotorSvg win={spinning ? null : win} />
+            <RotorSvg win={spinning ? null : win} lucky={lucky} />
             <div className="rw3-turret">
               <Layers n={5} cls="rw3-tlayer" gap={-3} />
               <div className="rw3-cross">
@@ -307,49 +321,92 @@ function Wheel({ w, spinning, win }: { w: ReturnType<typeof useWheel>; spinning:
   );
 }
 
-/* ─────────────────────────────── board ─────────────────────────────── */
 
-function Cell({ k, label, cls, bets, onBet, win, span, settled }: { k: BetKey; label: string; cls: string; bets: Record<BetKey, number>; onBet: (k: BetKey) => void; win?: boolean; span?: string; settled: boolean }) {
-  const amt = bets[k] ?? 0;
-  const dolly = win && k.startsWith('straight');
+/* ─────────────────────────────── table ─────────────────────────────── */
+
+const chipLabel = (amt: number) => (amt >= 1000 ? `${Math.round(amt / 100) / 10}k` : amt % 1 ? amt.toFixed(amt < 1 ? 1 : 2).replace(/0$/, '') : String(amt));
+
+/** grid-area for every bet spot — wide table on desktop, tall 5-column table on phones */
+const LAYOUT = {
+  wide: {
+    zero: '1 / 1 / 4 / 2',
+    num: (n: number) => {
+      const ri = 3 - (((n - 1) % 3) + 1); // top row holds 3, 6, 9 …
+      const c = Math.floor((n - 1) / 3);
+      return `${ri + 1} / ${c + 2} / ${ri + 2} / ${c + 3}`;
+    },
+    col: (c: number) => `${4 - c} / 14 / ${5 - c} / 15`,
+    dozen: (d: number) => `4 / ${2 + (d - 1) * 4} / 5 / ${6 + (d - 1) * 4}`,
+    out: (i: number) => `5 / ${2 + i * 2} / 6 / ${4 + i * 2}`,
+    hot: '1 / 2 / 4 / 14',
+    pos: (u: number, v: number) => ({ left: `${(u / 12) * 100}%`, top: `${(1 - v / 3) * 100}%` }),
+  },
+  tall: {
+    zero: '1 / 3 / 2 / 6',
+    num: (n: number) => {
+      const r = Math.ceil(n / 3) + 1;
+      const c = 3 + ((n - 1) % 3);
+      return `${r} / ${c} / ${r + 1} / ${c + 1}`;
+    },
+    col: (c: number) => `14 / ${2 + c} / 15 / ${3 + c}`,
+    dozen: (d: number) => `${2 + (d - 1) * 4} / 2 / ${6 + (d - 1) * 4} / 3`,
+    out: (i: number) => `${2 + i * 2} / 1 / ${4 + i * 2} / 2`,
+    hot: '2 / 3 / 14 / 6',
+    pos: (u: number, v: number) => ({ left: `${(v / 3) * 100}%`, top: `${(u / 12) * 100}%` }),
+  },
+};
+
+interface TableProps {
+  bets: Record<BetKey, number>;
+  onBet: (k: BetKey) => void;
+  last: number | null;
+  settled: boolean;
+  tall: boolean;
+  hover: Set<number>;
+  onHover: (nums: number[] | null) => void;
+  lucky: Map<number, number>;
+}
+
+function Cell({ k, label, cls, span, t }: { k: BetKey; label: string; cls: string; span: string; t: TableProps }) {
+  const amt = t.bets[k] ?? 0;
+  const nums = covered(k);
+  const straight = k.startsWith('straight:');
+  const n = straight ? nums[0] : null;
+  const win = t.last != null && nums.includes(t.last);
+  const hl = nums.length > 0 && nums.every((x) => t.hover.has(x));
+  const lucky = n != null ? t.lucky.get(n) : undefined;
   return (
-    <button type="button" className={`rc ${cls} ${win ? 'rc-win' : ''}`} style={span ? { gridArea: span } : undefined} onClick={() => onBet(k)}>
+    <button
+      type="button"
+      data-n={n ?? undefined}
+      className={`rc ${cls} ${win ? 'rc-win' : ''} ${hl ? 'hl' : ''} ${lucky ? 'lucky' : ''}`}
+      style={{ gridArea: span }}
+      onClick={() => t.onBet(k)}
+      onPointerEnter={() => t.onHover(nums)}
+      title={`${label || k} · pays ${PAYS[k.split(':')[0]]}:1`}
+    >
       <span className="rc-label">{label}</span>
-      {amt > 0 && <span className={`rchip ${settled ? (win ? 'won' : 'lost') : ''}`}>{amt >= 1000 ? `${Math.round(amt / 100) / 10}k` : amt % 1 ? amt.toFixed(2) : amt}</span>}
-      {dolly && <span className="rdolly" aria-label="winning number" />}
+      {lucky && <span className="rc-lucky">{lucky}×</span>}
+      {amt > 0 && <span className={`rchip ${t.settled ? (win ? 'won' : 'lost') : ''}`}>{chipLabel(amt)}</span>}
+      {win && straight && <span className="rdolly" aria-label="winning number" />}
     </button>
   );
 }
 
-function Board({ bets, onBet, last, disabled, settled }: { bets: Record<BetKey, number>; onBet: (k: BetKey) => void; last: number | null; disabled: boolean; settled: boolean }) {
-  const rows = [3, 2, 1]; // top row = numbers ≡ 0 mod 3
-  const winCover = (k: BetKey) => {
-    if (last == null) return false;
-    const [t, v] = k.split(':');
-    const n = last;
-    if (t === 'straight') return Number(v) === n;
-    if (n === 0) return false;
-    return (
-      (t === 'red' && RED.has(n)) || (t === 'black' && !RED.has(n)) || (t === 'odd' && n % 2 === 1) || (t === 'even' && n % 2 === 0) ||
-      (t === 'low' && n <= 18) || (t === 'high' && n >= 19) || (t === 'dozen' && Math.ceil(n / 12) === Number(v)) || (t === 'column' && ((n - 1) % 3) + 1 === Number(v))
-    );
-  };
-  const p = { bets, onBet, settled };
+function Table(t: TableProps & { disabled: boolean }) {
+  const L = t.tall ? LAYOUT.tall : LAYOUT.wide;
   return (
-    <div className={`rboard-wrap ${disabled ? 'locked' : ''} ${settled ? 'settled' : ''}`}>
-      <div className="rboard felt">
-        <Cell {...p} k="straight:0" label="0" cls="green zero" win={winCover('straight:0')} span="1 / 1 / 4 / 2" />
-        {rows.map((r, ri) =>
-          Array.from({ length: 12 }, (_, c) => {
-            const n = c * 3 + r;
-            return <Cell {...p} key={n} k={`straight:${n}`} label={String(n)} cls={color(n)} win={winCover(`straight:${n}`)} span={`${ri + 1} / ${c + 2} / ${ri + 2} / ${c + 3}`} />;
-          })
-        )}
-        {rows.map((r, ri) => (
-          <Cell {...p} key={`col${r}`} k={`column:${r}`} label="2:1" cls="outside" win={winCover(`column:${r}`)} span={`${ri + 1} / 14 / ${ri + 2} / 15`} />
+    <div className={`rboard-wrap ${t.disabled ? 'locked' : ''} ${t.settled ? 'settled' : ''}`} onPointerLeave={() => t.onHover(null)}>
+      <div className={`rboard felt ${t.tall ? 'tall' : ''}`}>
+        <Cell t={t} k={K.straight(0)} label="0" cls="green zero" span={L.zero} />
+        {Array.from({ length: 36 }, (_, i) => i + 1).map((n) => (
+          <Cell t={t} key={n} k={K.straight(n)} label={String(n)} cls={color(n)} span={L.num(n)} />
+        ))}
+        {[1, 2, 3].map((c) => (
+          <Cell t={t} key={`col${c}`} k={`column:${c}`} label="2:1" cls="outside" span={L.col(c)} />
         ))}
         {[1, 2, 3].map((d) => (
-          <Cell {...p} key={`dz${d}`} k={`dozen:${d}`} label={['1st 12', '2nd 12', '3rd 12'][d - 1]} cls="outside" win={winCover(`dozen:${d}`)} span={`4 / ${2 + (d - 1) * 4} / 5 / ${6 + (d - 1) * 4}`} />
+          <Cell t={t} key={`dz${d}`} k={`dozen:${d}`} label={['1st 12', '2nd 12', '3rd 12'][d - 1]} cls="outside dozen" span={L.dozen(d)} />
         ))}
         {(
           [
@@ -360,31 +417,114 @@ function Board({ bets, onBet, last, disabled, settled }: { bets: Record<BetKey, 
             ['odd', 'Odd'],
             ['high', '19–36'],
           ] as const
-        ).map(([k, l], i) => (
-          <Cell {...p} key={k} k={k} label={l} cls={`outside ${k === 'red' ? 'red diamond' : k === 'black' ? 'black diamond' : ''}`} win={winCover(k)} span={`5 / ${2 + i * 2} / 6 / ${4 + i * 2}`} />
+        ).map(([key, l], i) => (
+          <Cell t={t} key={key} k={key} label={l} cls={`outside ${key === 'red' ? 'red diamond' : key === 'black' ? 'black diamond' : ''}`} span={L.out(i)} />
         ))}
+        {/* split / street / corner / six-line spots sit on the lines between numbers */}
+        <div className="rb-hot" style={{ gridArea: L.hot }}>
+          {HOTSPOTS.map((h) => {
+            const amt = t.bets[h.key] ?? 0;
+            const nums = covered(h.key);
+            const win = t.last != null && nums.includes(t.last);
+            return (
+              <button
+                key={h.key}
+                type="button"
+                className={`hs ${h.kind} ${amt ? 'has' : ''}`}
+                style={L.pos(h.u, h.v)}
+                onClick={() => t.onBet(h.key)}
+                onPointerEnter={() => t.onHover(nums)}
+                aria-label={`${h.kind} ${nums.join(', ')}`}
+                title={`${h.kind} ${nums.join('/')} · pays ${PAYS[h.kind]}:1`}
+              >
+                {amt > 0 && <span className={`rchip mini ${t.settled ? (win ? 'won' : 'lost') : ''}`}>{chipLabel(amt)}</span>}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 }
 
+/* ─────────────────────────────── lightning ─────────────────────────────── */
+
+interface Bolt {
+  id: number;
+  d: string;
+  branch: string;
+  w: number;
+  h: number;
+  x: number;
+  y: number;
+}
+function makeBolt(w: number, h: number, x: number, y: number): Bolt {
+  const x0 = x + (Math.random() - 0.5) * w * 0.5;
+  const seg = 9;
+  const pts: [number, number][] = [];
+  for (let i = 0; i <= seg; i++) {
+    const t = i / seg;
+    const jitter = i === 0 || i === seg ? 0 : (Math.random() - 0.5) * 60 * (1 - t * 0.6);
+    pts.push([x0 + (x - x0) * t + jitter, -20 + (y + 20) * t]);
+  }
+  const d = 'M' + pts.map((p) => p.map((v) => v.toFixed(1)).join(' ')).join(' L');
+  const b0 = pts[3];
+  const branch = `M${b0[0].toFixed(1)} ${b0[1].toFixed(1)} L${(b0[0] + 40).toFixed(1)} ${(b0[1] + 50).toFixed(1)} L${(b0[0] + 28).toFixed(1)} ${(b0[1] + 90).toFixed(1)}`;
+  return { id: Math.random(), d, branch, w, h, x, y };
+}
+
 /* ─────────────────────────────── game ─────────────────────────────── */
+
+type Phase = 'bets' | 'closed' | 'strike' | 'spin' | 'result';
+const PHASE_TEXT: Record<Phase, string> = { bets: 'Place your bets', closed: 'No more bets', strike: 'Lightning strikes', spin: 'No more bets', result: '' };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function RouletteGame() {
   const bet = useBet();
   const wheel = useWheel();
+  const tall = useMedia('(max-width: 559px)');
+  const [mode, setMode] = useState<Mode>(() => {
+    try {
+      return (localStorage.getItem('wb_roulette_mode') as Mode) || 'classic';
+    } catch {
+      return 'classic';
+    }
+  });
   const [chip, setChip] = useState(1);
   const [bets, setBets] = useState<Record<BetKey, number>>({});
-  const [stack, setStack] = useState<{ k: BetKey; a: number }[]>([]);
-  const [spinning, setSpinning] = useState(false);
+  const [stack, setStack] = useState<{ k: BetKey; a: number }[][]>([]);
+  const [phase, setPhase] = useState<Phase>('bets');
   const [last, setLast] = useState<number | null>(null);
   const [settled, setSettled] = useState(false); // result shown, chips still on the felt
-  const [history, setHistory] = useState<{ n: number; id: number }[]>([]);
-  const [outcome, setOutcome] = useState<{ n: number; returned: number; total: number } | null>(null);
+  const [history, setHistory] = useState<{ n: number; id: number; x?: number }[]>([]);
+  const [outcome, setOutcome] = useState<{ n: number; returned: number; total: number; boost?: number } | null>(null);
+  const [lucky, setLucky] = useState<Map<number, number>>(new Map());
+  const [bolts, setBolts] = useState<Bolt[]>([]);
+  const [flash, setFlash] = useState(0);
+  const [hover, setHover] = useState<Set<number>>(new Set());
+  const [count, setCount] = useState(2); // neighbours either side
+  const [view, setView] = useState<'table' | 'track'>('table');
   const [refresh, setRefresh] = useState(0);
   const lastBets = useRef<Record<BetKey, number>>({});
+  const top = useRef<HTMLDivElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const spinning = phase !== 'bets' && phase !== 'result';
+  const thunder = mode === 'thunder';
 
   const total = useMemo(() => Math.round(Object.values(bets).reduce((a, b) => a + b, 0) * 100) / 100, [bets]);
+  const straightChips = useMemo(() => {
+    const m = new Map<number, number>();
+    Object.entries(bets).forEach(([key, a]) => key.startsWith('straight:') && m.set(Number(key.slice(9)), a));
+    return m;
+  }, [bets]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('wb_roulette_mode', mode);
+    } catch {
+      /* ignore */
+    }
+  }, [mode]);
 
   /** first action after a result clears the felt */
   const fresh = () => {
@@ -392,134 +532,305 @@ export function RouletteGame() {
     setSettled(false);
     setOutcome(null);
     setLast(null);
+    setLucky(new Map());
+    setPhase('bets');
     return true;
   };
-  const place = (k: BetKey) => {
-    if (spinning) return;
+  const placeMany = (items: [BetKey, number][]) => {
+    if (spinning || !items.length) return;
     const reset = fresh();
     sfx.chip();
+    if (items.length > 1) setTimeout(() => sfx.chip(), 70);
+    const group = items.map(([key, units]) => ({ k: key, a: Math.round(chip * units * 100) / 100 }));
     setBets((b) => {
-      const base = reset ? {} : b;
-      return { ...base, [k]: Math.round(((base[k] ?? 0) + chip) * 100) / 100 };
+      const next = { ...(reset ? {} : b) };
+      for (const g of group) next[g.k] = Math.round(((next[g.k] ?? 0) + g.a) * 100) / 100;
+      return next;
     });
-    setStack((s) => [...(reset ? [] : s), { k, a: chip }]);
+    setStack((s) => [...(reset ? [] : s), group]);
   };
-  const undo = () => {
-    if (fresh()) return clear();
-    const top = stack[stack.length - 1];
-    if (!top) return;
-    sfx.click();
-    setStack((s) => s.slice(0, -1));
-    setBets((b) => {
-      const v = Math.round(((b[top.k] ?? 0) - top.a) * 100) / 100;
-      const n = { ...b };
-      if (v <= 0) delete n[top.k];
-      else n[top.k] = v;
-      return n;
-    });
-  };
+  const place = (key: BetKey) => placeMany([[key, 1]]);
+  const placeNeighbours = (n: number) => placeMany(neighbours(n, count).map((x) => [K.straight(x), 1]));
+  const placeSection = (id: string) => placeMany(ANNOUNCED[id].chips);
+
   const clear = () => {
     fresh();
     sfx.click();
     setBets({});
     setStack([]);
   };
+  const undo = () => {
+    if (fresh()) return clear();
+    const g = stack[stack.length - 1];
+    if (!g) return;
+    sfx.click();
+    setStack((s) => s.slice(0, -1));
+    setBets((b) => {
+      const next = { ...b };
+      for (const { k: key, a } of g) {
+        const v = Math.round(((next[key] ?? 0) - a) * 100) / 100;
+        if (v <= 0) delete next[key];
+        else next[key] = v;
+      }
+      return next;
+    });
+  };
   const rebet = () => {
     fresh();
     sfx.chip();
     setBets({ ...lastBets.current });
-    setStack(Object.entries(lastBets.current).map(([k, a]) => ({ k, a })));
+    setStack([Object.entries(lastBets.current).map(([key, a]) => ({ k: key, a }))]);
+  };
+  const double = () => {
+    if (!total) return;
+    fresh();
+    sfx.chip();
+    setStack((s) => [...s, Object.entries(bets).map(([key, a]) => ({ k: key, a }))]);
+    setBets((b) => Object.fromEntries(Object.entries(b).map(([key, a]) => [key, Math.round(a * 200) / 100])));
+  };
+
+  const strike = (n: number) => {
+    const st = stage.current;
+    if (!st) return;
+    const target = st.querySelector(`.rc[data-n="${n}"]`) ?? st.querySelector(`.rt-cell[data-n="${n}"]`);
+    const sr = st.getBoundingClientRect();
+    let x = sr.width / 2;
+    let y = sr.height / 2;
+    if (target) {
+      const r = target.getBoundingClientRect();
+      x = r.left - sr.left + r.width / 2;
+      y = r.top - sr.top + r.height / 2;
+    }
+    const b = makeBolt(sr.width, sr.height, x, y);
+    setBolts((list) => [...list, b]);
+    setFlash((f) => f + 1);
+    sfx.thunder();
+    setTimeout(() => setBolts((list) => list.filter((z) => z.id !== b.id)), 900);
   };
 
   async function spin() {
     if (!total) return bet.toast('info', 'Place a chip on the table first');
     if (!bet.ensure(total)) return;
-    const list = Object.entries(bets).map(([k, amount]) => {
-      const [type, v] = k.split(':');
-      return { type, ...(v != null ? { value: Number(v) } : {}), amount };
-    });
-    setSpinning(true);
+    const list = Object.entries(bets).map(([key, amount]) => toApi(key, amount));
+    const placed = { ...bets };
+    setPhase('closed');
     setSettled(false);
     setOutcome(null);
     setLast(null);
+    setLucky(new Map());
     bet.debit(total);
     sfx.bet();
     try {
-      const res = await casino.play<RouletteResult>('roulette', { bets: list });
-      lastBets.current = { ...bets };
+      const res = await casino.play<RouletteResult>('roulette', { bets: list, mode });
+      lastBets.current = placed;
+      const strikes = res.result.lucky ?? [];
+      if (strikes.length) {
+        setPhase('strike');
+        await sleep(350);
+        const m = new Map<number, number>();
+        for (const s of strikes) {
+          strike(s.number);
+          m.set(s.number, s.multiplier);
+          setLucky(new Map(m));
+          await sleep(620);
+        }
+        await sleep(300);
+      }
+      setPhase('spin');
+      if (tall) top.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       await wheel.spin(res.result.pocket);
-      setLast(res.result.number);
+      const n = res.result.number;
+      const boost = strikes.find((s) => s.number === n && placed[K.straight(n)])?.multiplier;
+      setLast(n);
       setSettled(true);
-      setHistory((h) => [{ n: res.result.number, id: Date.now() }, ...h].slice(0, 16));
-      setOutcome({ n: res.result.number, returned: res.result.returned, total });
+      setPhase('result');
+      setHistory((h) => [{ n, id: Date.now(), x: strikes.find((s) => s.number === n)?.multiplier }, ...h].slice(0, 18));
+      setOutcome({ n, returned: res.result.returned, total, boost });
       bet.setBalance(res.balance);
       setRefresh((x) => x + 1);
-      setTimeout(() => resultSound(total ? res.result.returned / total : 0), 250);
+      setTimeout(() => (boost ? (sfx.thunder(), setFlash((f) => f + 1), sfx.bigWin()) : resultSound(total ? res.result.returned / total : 0)), 250);
     } catch (e) {
+      setPhase('bets');
       bet.fail(e);
-    } finally {
-      setSpinning(false);
     }
   }
 
   const hasLast = Object.keys(lastBets.current).length > 0;
+  const onHover = (nums: number[] | null) => setHover(new Set(nums ?? []));
+  const tableProps: TableProps = { bets, onBet: place, last, settled, tall, hover, onHover, lucky };
+  const stats = useMemo(() => {
+    if (!history.length) return null;
+    const r = history.filter((h) => color(h.n) === 'red').length;
+    const z = history.filter((h) => h.n === 0).length;
+    return { r: (r / history.length) * 100, z: (z / history.length) * 100, b: ((history.length - r - z) / history.length) * 100 };
+  }, [history]);
+
+  const track = (
+    <div className="rt-wrap">
+      <div className="rt-head">
+        <span>Racetrack</span>
+        <div className="rt-count">
+          <small>Neighbours</small>
+          <button type="button" className="mini-btn" onClick={() => (sfx.click(), setCount((c) => Math.max(1, c - 1)))} disabled={count <= 1} aria-label="Fewer neighbours">
+            <LuMinus size={14} />
+          </button>
+          <b>{count}</b>
+          <button type="button" className="mini-btn" onClick={() => (sfx.click(), setCount((c) => Math.min(5, c + 1)))} disabled={count >= 5} aria-label="More neighbours">
+            <LuPlus size={14} />
+          </button>
+        </div>
+      </div>
+      <div className={spinning ? 'locked' : ''}>
+        <Racetrack tall={tall} count={count} hover={hover} lucky={lucky} win={last} onNumber={placeNeighbours} onSection={placeSection} onHover={onHover} chips={straightChips} />
+      </div>
+      <small className="muted rt-hint">
+        Tap a number to bet it with {count} neighbour{count > 1 ? 's' : ''} each side ({count * 2 + 1} chips). Voisins 9 chips · Tier 6 · Orphelins 5 · Zero 4.
+      </small>
+    </div>
+  );
 
   return (
     <GameShell
       game="roulette"
       refreshKey={refresh}
+      className={thunder ? 'is-thunder' : ''}
       controls={
         <>
-          <span className="field-label">Chip value</span>
-          <div className="chip-picker">
-            {CHIPS.map((c) => (
-              <button key={c} className={`chip-sel c${String(c).replace('.', '_')} ${chip === c ? 'on' : ''}`} onClick={() => (sfx.chip(), setChip(c))} disabled={spinning}>
-                {c < 1 ? c.toFixed(1) : c}
-              </button>
-            ))}
-          </div>
+          <span className="field-label">Table</span>
+          <Seg
+            value={mode}
+            onChange={(m) => (settled ? clear() : fresh(), setMode(m))}
+            disabled={spinning}
+            options={[
+              { v: 'classic', label: 'Classic' },
+              { v: 'thunder', label: '⚡ Thunder' },
+            ]}
+          />
           <InfoRow label="Total bet" value={usd(total)} />
-          <div className="btn-pair three">
-            <button className="btn btn-ghost btn-sm" onClick={undo} disabled={spinning || !stack.length}>
-              <LuUndo2 size={15} /> Undo
-            </button>
-            <button className="btn btn-ghost btn-sm" onClick={clear} disabled={spinning || !total}>
-              <LuTrash2 size={15} /> Clear
-            </button>
-            <button className="btn btn-ghost btn-sm" onClick={rebet} disabled={spinning || !hasLast}>
-              <LuRotateCcw size={15} /> Rebet
-            </button>
+          <ActionBar className="rl-bar">
+            <span className="field-label hide-sm">Chip value</span>
+            <div className="chip-picker">
+              {CHIPS.map((c) => (
+                <button key={c} className={`chip-sel c${String(c).replace('.', '_')} ${chip === c ? 'on' : ''}`} onClick={() => (sfx.chip(), setChip(c))} disabled={spinning}>
+                  {c < 1 ? c.toFixed(1) : c}
+                </button>
+              ))}
+            </div>
+            <div className="rl-bar-row">
+              <div className="btn-pair four">
+                <button className="btn btn-ghost btn-sm" onClick={undo} disabled={spinning || !stack.length} aria-label="Undo" title="Undo">
+                  <LuUndo2 size={15} /> <span className="hide-sm">Undo</span>
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={clear} disabled={spinning || !total} aria-label="Clear" title="Clear">
+                  <LuTrash2 size={15} /> <span className="hide-sm">Clear</span>
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={rebet} disabled={spinning || !hasLast} aria-label="Rebet" title="Rebet">
+                  <LuRotateCcw size={15} /> <span className="hide-sm">Rebet</span>
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={double} disabled={spinning || !total} aria-label="Double" title="Double all bets">
+                  <b>2×</b>
+                </button>
+              </div>
+              <PlayButton busy={spinning} onClick={spin} disabled={!total}>
+                {settled ? 'Spin again' : 'Spin'}
+                {total > 0 && <small className="pb-sub"> · {usd(total)}</small>}
+              </PlayButton>
+            </div>
+          </ActionBar>
+          <div className="rl-rules">
+            {thunder ? (
+              <>
+                <b>
+                  <LuZap size={13} /> Thunder Roulette
+                </b>
+                <span>1–5 lucky numbers are struck every round with 50× – 500×. A straight-up bet on a lucky number pays its multiplier; other straight-ups pay 29:1. All other bets pay as usual.</span>
+              </>
+            ) : (
+              <>
+                <b>European roulette</b>
+                <span>Single zero. Straight 35:1 · Split 17:1 · Street 11:1 · Corner 8:1 · Six line 5:1 · Dozen/Column 2:1 · Even money 1:1. Tap the lines between numbers for splits, corners and streets.</span>
+              </>
+            )}
+            <small>RTP 97.3%</small>
           </div>
-          <PlayButton busy={spinning} onClick={spin} disabled={!total}>
-            {settled ? 'Spin again' : 'Spin'}
-          </PlayButton>
-          <small className="muted">European roulette · single zero · straight up pays 35:1 · 97.3% RTP</small>
         </>
       }
       stage={
-        <div className="roulette-stage">
-          <div className="rl-top">
-            <Wheel w={wheel} spinning={spinning} win={last} />
+        <div className={`roulette-stage live-table ${thunder ? 'thunder' : ''}`} ref={stage}>
+          <div className="rl-livebar">
+            <span className="rl-live">
+              <i /> LIVE
+            </span>
+            <span className="rl-table-name">{thunder ? '⚡ Thunder Roulette' : 'Wavy Royale'}</span>
+            <span className={`rl-phase p-${phase}`} key={phase}>
+              {phase === 'result' && last != null ? `${last} ${color(last).toUpperCase()}` : PHASE_TEXT[phase]}
+            </span>
+          </div>
+          <div className="rl-top" ref={top}>
+            <Wheel w={wheel} spinning={spinning} win={last} lucky={lucky} thunder={thunder} />
             <div className="rl-side">
+              {thunder && lucky.size > 0 && (
+                <div className="rl-lucky-strip">
+                  {[...lucky.entries()].map(([n, x]) => (
+                    <span key={n} className={`rls ${color(n)} ${last === n ? 'hit' : ''}`}>
+                      <LuZap size={11} />
+                      <b>{n}</b>
+                      <em>{x}×</em>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="rl-history">
                 {history.map((h) => (
-                  <span key={h.id} className={`rlh ${color(h.n)}`}>
+                  <span key={h.id} className={`rlh ${color(h.n)} ${h.x ? 'zap' : ''}`} title={h.x ? `${h.n} · lucky ${h.x}×` : String(h.n)}>
                     {h.n}
                   </span>
                 ))}
               </div>
+              {stats && (
+                <div className="rl-stats" title="Red / zero / black this session">
+                  <i className="red" style={{ width: `${stats.r}%` }} />
+                  <i className="green" style={{ width: `${stats.z}%` }} />
+                  <i className="black" style={{ width: `${stats.b}%` }} />
+                </div>
+              )}
             </div>
             {outcome && (
-              <div className={`rl-result ${color(outcome.n)} ${outcome.returned > outcome.total ? 'is-win' : ''}`}>
+              <div className={`rl-result ${color(outcome.n)} ${outcome.returned > outcome.total ? 'is-win' : ''} ${outcome.boost ? 'is-zap' : ''}`}>
                 <b>{outcome.n}</b>
-                <span>{outcome.n === 0 ? 'ZERO' : `${color(outcome.n).toUpperCase()} · ${outcome.n % 2 ? 'ODD' : 'EVEN'}`}</span>
+                <span>{outcome.boost ? `⚡ ${outcome.boost}× LIGHTNING` : outcome.n === 0 ? 'ZERO' : `${color(outcome.n).toUpperCase()} · ${outcome.n % 2 ? 'ODD' : 'EVEN'}`}</span>
               </div>
             )}
           </div>
-          <Board bets={bets} onBet={place} last={last} disabled={spinning} settled={settled} />
+          {tall && (
+            <div className="rl-viewtabs">
+              <Seg
+                value={view}
+                onChange={setView}
+                options={[
+                  { v: 'table', label: 'Table' },
+                  { v: 'track', label: 'Racetrack' },
+                ]}
+              />
+            </div>
+          )}
+          {(!tall || view === 'table') && <Table {...tableProps} disabled={spinning} />}
+          {(!tall || view === 'track') && track}
+          <div className="bolt-layer" aria-hidden>
+            {flash > 0 && <div key={flash} className="thunder-flash" />}
+            {bolts.map((b) => (
+              <svg key={b.id} className="bolt" viewBox={`0 0 ${b.w} ${b.h}`} preserveAspectRatio="none">
+                <path d={b.d} className="bolt-glow" />
+                <path d={b.d} className="bolt-core" />
+                <path d={b.branch} className="bolt-core thin" />
+                <circle cx={b.x} cy={b.y} r="26" className="bolt-hit" />
+              </svg>
+            ))}
+          </div>
           {outcome && (
             <div className={`stage-banner ${outcome.returned > outcome.total ? 'win' : outcome.returned > 0 ? 'push' : 'loss'}`}>
-              {outcome.n} {color(outcome.n)} · {outcome.returned > 0 ? `returned ${usd(outcome.returned)}` : 'no win'}
+              {outcome.boost ? `⚡ ${outcome.boost}× on ${outcome.n} · ` : `${outcome.n} ${color(outcome.n)} · `}
+              {outcome.returned > 0 ? `returned ${usd(outcome.returned)}` : 'no win'}
             </div>
           )}
         </div>

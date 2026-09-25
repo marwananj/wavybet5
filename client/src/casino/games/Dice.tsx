@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { LuArrowLeftRight } from 'react-icons/lu';
 import { usd } from '../../lib/format';
 import { casino, mult, sleep } from '../api';
-import { BetAmount, GameShell, InfoRow, PlayButton, useBet } from '../shared';
+import { ActionBar, BetAmount, GameShell, InfoRow, PlayButton, useBet } from '../shared';
 import { resultSound, sfx } from '../sound';
 
 interface DiceResult {
@@ -77,9 +77,11 @@ export function DiceGame() {
         <>
           <BetAmount value={amount} onChange={setAmount} disabled={busy} />
           <InfoRow label="Profit on win" value={usd(stake * m - stake)} accent />
-          <PlayButton busy={busy} onClick={play}>
-            Roll dice
-          </PlayButton>
+          <ActionBar>
+            <PlayButton busy={busy} onClick={play}>
+              Roll dice
+            </PlayButton>
+          </ActionBar>
         </>
       }
       stage={

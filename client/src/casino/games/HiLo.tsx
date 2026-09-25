@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { LuArrowDown, LuArrowUp, LuEqual, LuSkipForward } from 'react-icons/lu';
 import { usd } from '../../lib/format';
 import { casino, mult, type Card, type Round } from '../api';
-import { BetAmount, GameShell, InfoRow, PlayButton, PlayingCard, useBet } from '../shared';
+import { ActionBar, BetAmount, GameShell, InfoRow, PlayButton, PlayingCard, useBet } from '../shared';
 import { resultSound, sfx } from '../sound';
 
 interface Opt {
@@ -94,6 +94,7 @@ export function HiloGame() {
       controls={
         <>
           <BetAmount value={amount} onChange={setAmount} disabled={busy || inPlay} />
+          <ActionBar className={inPlay ? 'split-hilo' : ''}>
           {inPlay ? (
             <>
               <div className="hilo-opts">
@@ -112,10 +113,6 @@ export function HiloGame() {
                   );
                 })}
               </div>
-              <button className="btn btn-ghost btn-block" disabled={busy} onClick={() => act('skip')}>
-                <LuSkipForward size={16} /> Skip card
-              </button>
-              <InfoRow label="Current multiplier" value={mult(v!.multiplier)} accent={v!.wins > 0} />
               <PlayButton tone="cash" busy={busy} disabled={!v!.canCashout} onClick={() => act('cashout')}>
                 {v!.canCashout ? `Cash out ${usd(stake * v!.multiplier)}` : 'Guess to start winning'}
               </PlayButton>
@@ -124,6 +121,15 @@ export function HiloGame() {
             <PlayButton busy={busy} onClick={start}>
               {v ? 'Play again' : 'Start'}
             </PlayButton>
+          )}
+          </ActionBar>
+          {inPlay && (
+            <>
+              <button className="btn btn-ghost btn-block" disabled={busy} onClick={() => act('skip')}>
+                <LuSkipForward size={16} /> Skip card
+              </button>
+              <InfoRow label="Current multiplier" value={mult(v!.multiplier)} accent={v!.wins > 0} />
+            </>
           )}
         </>
       }

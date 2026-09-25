@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { LuShuffle } from 'react-icons/lu';
 import { usd } from '../../lib/format';
 import { casino, mult, type Round } from '../api';
-import { BetAmount, GameShell, InfoRow, PlayButton, Seg, useBet, useCasinoConfig } from '../shared';
+import { ActionBar, BetAmount, GameShell, InfoRow, PlayButton, Seg, useBet, useCasinoConfig } from '../shared';
 import { sfx } from '../sound';
 
 type Level = 'easy' | 'medium' | 'hard' | 'expert';
@@ -136,10 +136,11 @@ export function TowerGame() {
               { v: 'expert', label: 'Expert' },
             ]}
           />
+          <ActionBar className={inPlay ? 'split' : ''}>
           {inPlay ? (
             <>
               <button className="btn btn-ghost btn-block" disabled={busy} onClick={randomPick}>
-                <LuShuffle size={16} /> Random tile {nextMult ? `→ ${mult(nextMult)}` : ''}
+                <LuShuffle size={16} /> Random<span className="hide-sm"> tile {nextMult ? `→ ${mult(nextMult)}` : ''}</span>
               </button>
               <PlayButton tone="cash" busy={busy} disabled={!v!.canCashout} onClick={() => act('cashout')}>
                 {v!.canCashout ? `Cash out ${usd(stake * v!.multiplier)}` : 'Clear a floor to cash out'}
@@ -150,6 +151,7 @@ export function TowerGame() {
               {v ? 'Play again' : 'Start climbing'}
             </PlayButton>
           )}
+          </ActionBar>
           <InfoRow label="Tiles per floor" value={L ? `${L.tiles} · ${L.tiles - L.safe} skull${L.tiles - L.safe > 1 ? 's' : ''}` : '—'} />
           <InfoRow label="Top floor pays" value={ladder.length ? mult(ladder[ladder.length - 1]) : '—'} />
         </>

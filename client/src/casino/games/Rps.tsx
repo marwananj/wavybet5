@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { FaHandPaper, FaHandRock, FaHandScissors } from 'react-icons/fa';
 import { usd } from '../../lib/format';
 import { casino, mult, sleep } from '../api';
-import { BetAmount, GameShell, InfoRow, PlayButton, useBet } from '../shared';
+import { ActionBar, BetAmount, GameShell, InfoRow, PlayButton, useBet } from '../shared';
 import { resultSound, sfx } from '../sound';
 
 type Pick = 'rock' | 'paper' | 'scissors';
@@ -83,9 +83,11 @@ export function RpsGame() {
           </div>
           <InfoRow label="Win pays" value={`${mult(WIN)} · ${usd(stake * WIN)}`} accent />
           <InfoRow label="Draw" value="Stake returned" />
-          <PlayButton busy={busy} onClick={play}>
-            Play
-          </PlayButton>
+          <ActionBar>
+            <PlayButton busy={busy} onClick={play}>
+              Play
+            </PlayButton>
+          </ActionBar>
         </>
       }
       stage={

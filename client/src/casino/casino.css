@@ -2902,3 +2902,972 @@
     gap: 12px;
   }
 }
+
+/* ═══════════════════════ Mobile play layout (v2) ═══════════════════════
+ * Phones & small tablets: stage on top, game settings below, and the main buttons docked
+ * to the bottom of the screen above the tab bar so the player never scrolls to bet. */
+.action-bar {
+  display: grid;
+  gap: 8px;
+}
+.pb-sub {
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+.rl-bar {
+  gap: 10px;
+}
+.rl-bar-row {
+  display: grid;
+  gap: 10px;
+}
+@media (max-width: 899px) {
+  .casino-page {
+    padding-bottom: 96px;
+  }
+  .casino-page.g-roulette {
+    padding-bottom: 150px;
+  }
+  .casino-page.g-hilo {
+    padding-bottom: 150px;
+  }
+  .action-bar {
+    position: fixed;
+    z-index: 54; /* under the betslip sheet and its backdrop */
+    left: 0;
+    right: 0;
+    bottom: calc(var(--mnav-h) + var(--safe-b));
+    padding: 10px 12px;
+    background: rgba(13, 17, 38, 0.94);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-top: 1px solid var(--line-2);
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45);
+    animation: barIn 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .action-bar .play-btn {
+    height: 50px;
+    font-size: 16px;
+  }
+  .action-bar.split {
+    grid-template-columns: 1fr 1.4fr;
+  }
+  .action-bar.split .btn {
+    height: 50px;
+  }
+  .action-bar .bj-actions {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .action-bar .bj-actions .btn {
+    height: 50px;
+    padding: 0 4px;
+    font-size: 13.5px;
+  }
+  .action-bar .he-actions .btn {
+    height: 50px;
+  }
+  /* HiLo: higher / lower side by side above the cash-out */
+  .action-bar.split-hilo .hilo-opts {
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  }
+  .action-bar.split-hilo .hilo-opt {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+  .action-bar.split-hilo .hilo-opt small {
+    font-size: 10.5px;
+  }
+  .action-bar.split-hilo .play-btn {
+    height: 44px;
+    font-size: 14.5px;
+  }
+  /* Roulette: chips on top, undo/clear/rebet + spin below */
+  .rl-bar .chip-picker {
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 4px 2px 2px;
+  }
+  .rl-bar .chip-sel {
+    width: 40px;
+    height: 40px;
+    flex: none;
+  }
+  .rl-bar .chip-sel.on {
+    transform: translateY(-3px) scale(1.06);
+  }
+  .rl-bar-row {
+    grid-template-columns: auto 1fr;
+    align-items: center;
+  }
+  .rl-bar-row .btn-pair.three {
+    grid-template-columns: repeat(3, 44px);
+    gap: 6px;
+  }
+  .rl-bar-row .btn-pair .btn {
+    height: 50px;
+    padding: 0;
+  }
+  .rl-bar .field-label {
+    display: none;
+  }
+  .game-stage {
+    min-height: 0;
+  }
+}
+@keyframes barIn {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@media (max-width: 559px) {
+  .hide-sm {
+    display: none;
+  }
+  .casino-page .game-head {
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .casino-page .game-title h1 {
+    font-size: 18px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .casino-page .gt-kicker {
+    font-size: 9.5px;
+  }
+  .casino-page .fair-btn {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+  .game-shell {
+    margin: 0 -12px;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+  .game-stage {
+    padding: 12px;
+  }
+  .game-controls {
+    padding: 14px 12px;
+    gap: 8px;
+  }
+  .stage-banner {
+    bottom: 10px;
+    max-width: calc(100% - 24px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .recent-rounds,
+  .other-games {
+    margin-top: 18px;
+  }
+  /* full-bleed tables for the card games */
+  .bj-table,
+  .he-table {
+    margin: -12px;
+    min-height: calc(100% + 24px);
+  }
+  .chicken-stage {
+    margin: -12px;
+    padding-top: 12px;
+  }
+
+  /* Dice / Keno / RPS / Coin */
+  .dice-stage,
+  .keno-stage,
+  .rps-stage,
+  .coin-stage {
+    padding-bottom: 48px;
+  }
+  .keno-grid {
+    gap: 4px;
+  }
+
+  /* Roulette */
+  .roulette-stage {
+    gap: 12px;
+    padding-bottom: 50px;
+  }
+  .rl-top {
+    min-height: 0;
+    gap: 8px;
+  }
+  .rw3-scene {
+    width: min(300px, 80vw);
+  }
+  .rl-history {
+    max-width: 100%;
+    justify-content: center;
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+  .rlh {
+    width: 28px;
+    height: 24px;
+    flex: none;
+  }
+  .rboard-wrap {
+    overflow: visible;
+    padding: 6px;
+  }
+  .rboard.tall {
+    min-width: 0;
+    grid-template-columns: 0.95fr 0.8fr 1fr 1fr 1fr;
+    grid-template-rows: 42px repeat(12, 38px) 36px;
+    gap: 3px;
+  }
+  .rboard.tall .rc.zero {
+    border-radius: 22px 22px 6px 6px;
+  }
+  .rboard.tall .rc.dozen .rc-label {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    letter-spacing: 0.06em;
+  }
+  .rboard.tall .rc {
+    font-size: 14px;
+  }
+  .rboard.tall .rc.outside {
+    font-size: 12px;
+  }
+  .rl-result {
+    top: 4px;
+    left: 4px;
+  }
+
+  /* Blackjack */
+  .bj-table {
+    padding: 16px 10px 54px;
+    gap: 12px;
+  }
+  .bj-shoe {
+    width: 40px;
+    height: 54px;
+    top: 10px;
+    right: 10px;
+  }
+  .bj-hands {
+    gap: 14px;
+  }
+  .bj-hands.split .pcard {
+    --w: 58px;
+  }
+  .bj-hands.split .bj-cards .pcard + .pcard {
+    margin-left: -30px;
+  }
+
+  /* HiLo */
+  .hilo-stage {
+    gap: 12px;
+  }
+
+  /* Chicken */
+  .ck-hud {
+    padding: 0 12px;
+  }
+  .ck-hud b {
+    font-size: 17px;
+  }
+
+  /* Wheel */
+  .wheel-stage {
+    gap: 12px;
+    padding-bottom: 50px;
+  }
+  .wh-scene {
+    width: min(310px, 80vw);
+    padding-top: 12px;
+  }
+  .wh-pointer {
+    width: 28px;
+  }
+  .wh-legend {
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+    gap: 6px;
+  }
+  .wh-leg {
+    padding: 6px 8px;
+  }
+  .wh-history {
+    min-height: 24px;
+  }
+
+  /* Tower */
+  .tower-stage {
+    gap: 10px;
+    padding-bottom: 52px;
+  }
+  .tw-hud {
+    gap: 6px;
+  }
+  .tw-hud > div {
+    padding: 6px 8px;
+  }
+  .tw-tower {
+    padding: 10px 8px 0;
+    gap: 4px;
+  }
+  .tw-row {
+    gap: 6px;
+    padding: 3px;
+  }
+  .tw-tile {
+    height: 36px;
+  }
+  .tw-mult {
+    width: 50px;
+  }
+  .tw-base {
+    margin: 4px -8px 0;
+  }
+
+  /* Hold'em */
+  .he-table {
+    padding: 14px 8px 56px;
+  }
+  .he-table .pcard {
+    --w: clamp(50px, 16vw, 66px);
+  }
+  .he-board {
+    gap: 5px;
+  }
+  .he-cards .pcard + .pcard {
+    margin-left: -22px;
+  }
+  .he-spots {
+    gap: 8px;
+  }
+  .he-chip {
+    width: 34px;
+    height: 34px;
+    font-size: 10px;
+  }
+}
+@media (max-width: 359px) {
+  .rl-bar-row .btn-pair.three {
+    grid-template-columns: repeat(3, 38px);
+  }
+  .rl-bar .chip-sel {
+    width: 36px;
+    height: 36px;
+    font-size: 10px;
+  }
+}
+@media (max-width: 899px) {
+  .action-bar.split {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+  }
+  .action-bar.split .btn {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 14px;
+    padding: 0 10px;
+  }
+}
+
+/* ═══════════════════════ Roulette v3 — live table ═══════════════════════ */
+.roulette-stage.live-table {
+  position: relative;
+  margin: -18px;
+  padding: 14px 18px 64px;
+  min-height: calc(100% + 36px);
+  background:
+    radial-gradient(60% 38% at 50% 22%, rgba(255, 236, 190, 0.14), transparent 70%),
+    radial-gradient(120% 90% at 50% 0%, #15315c 0%, #0c1a38 55%, #070e22 100%);
+}
+.roulette-stage.live-table.thunder {
+  background:
+    radial-gradient(60% 38% at 50% 22%, rgba(255, 210, 74, 0.16), transparent 70%),
+    radial-gradient(120% 90% at 50% 0%, #2a1d52 0%, #130c2e 55%, #08051a 100%);
+}
+.rl-livebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 2;
+}
+.rl-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: #e11d48;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+.rl-live i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fff;
+  animation: livePulse 1.2s ease-in-out infinite;
+}
+@keyframes livePulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+.rl-table-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rl-phase {
+  margin-left: auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  animation: pop 0.35s;
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.35);
+}
+.rl-phase.p-closed,
+.rl-phase.p-spin {
+  background: rgba(225, 29, 72, 0.18);
+  color: #ff7a93;
+  border-color: rgba(255, 122, 147, 0.35);
+}
+.rl-phase.p-strike {
+  background: rgba(255, 210, 74, 0.2);
+  color: #ffd24a;
+  border-color: rgba(255, 210, 74, 0.5);
+}
+.rl-phase.p-result {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.rw3-scene.thunder .rw3-floor {
+  background: radial-gradient(closest-side, rgba(255, 210, 74, 0.28), transparent);
+}
+.rw3-scene.thunder .rw3-edge:last-child {
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7), 0 0 60px rgba(168, 85, 247, 0.35);
+}
+.r3-lucky {
+  animation: r3glow 0.45s ease-in-out infinite alternate;
+}
+.rl-side {
+  min-width: 0;
+}
+.rl-lucky-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.rls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px 4px 6px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(255, 210, 74, 0.25), rgba(255, 210, 74, 0.08));
+  border: 1px solid rgba(255, 210, 74, 0.55);
+  color: #ffd24a;
+  animation: pop 0.35s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+.rls b {
+  min-width: 24px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  font-size: 12px;
+  color: #fff;
+  background: var(--cell);
+}
+.rls em {
+  font-style: normal;
+  font-weight: 900;
+  font-size: 13px;
+}
+.rls.hit {
+  background: linear-gradient(90deg, #ffd24a, #ff9f1c);
+  color: #1b1000;
+  box-shadow: 0 0 22px rgba(255, 210, 74, 0.7);
+}
+.rlh.zap {
+  box-shadow: 0 0 0 2px #ffd24a;
+}
+.rl-stats {
+  display: flex;
+  width: 100%;
+  min-width: 80px;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #1f2548;
+}
+.rl-stats i {
+  display: block;
+  height: 100%;
+  background: var(--cell);
+  transition: width 0.4s;
+}
+.rl-result.is-zap {
+  border-color: #ffd24a;
+  box-shadow: 0 0 40px rgba(255, 210, 74, 0.55);
+}
+.rl-result.is-zap span {
+  color: #ffd24a;
+}
+.rl-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.rl-rules b {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #fff;
+  font-size: 12.5px;
+}
+.is-thunder .rl-rules b {
+  color: #ffd24a;
+}
+.rl-rules small {
+  color: var(--muted);
+  font-weight: 700;
+}
+.btn-pair.four {
+  grid-template-columns: repeat(4, 1fr);
+}
+.btn-pair.four .btn {
+  padding: 0 4px;
+  gap: 4px;
+}
+
+/* table: highlight, lucky, inside-bet hotspots */
+.rboard {
+  position: relative;
+}
+.rc.hl {
+  filter: brightness(1.35);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.75);
+}
+.rc.lucky {
+  box-shadow: 0 0 0 2px #ffd24a, 0 0 16px rgba(255, 210, 74, 0.8);
+  animation: luckyPulse 0.8s ease-in-out infinite alternate;
+  z-index: 1;
+}
+@keyframes luckyPulse {
+  to {
+    box-shadow: 0 0 0 2px #fff1b8, 0 0 26px rgba(255, 210, 74, 1);
+  }
+}
+.rc-lucky {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #ffe28a, #f5a623);
+  color: #2a1600;
+  font-size: 9.5px;
+  font-weight: 900;
+  white-space: nowrap;
+  z-index: 3;
+  animation: pop 0.35s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+.rb-hot {
+  position: relative;
+  pointer-events: none;
+  z-index: 2;
+}
+.hs {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: auto;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  transition: background 0.12s, box-shadow 0.12s;
+}
+.hs.corner,
+.hs.line {
+  width: 18px;
+  height: 18px;
+}
+.hs:hover {
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.6);
+}
+.rboard-wrap.locked .hs {
+  pointer-events: none;
+}
+.rchip.mini {
+  min-width: 22px;
+  height: 22px;
+  font-size: 8.5px;
+  position: static;
+  transform: none;
+}
+.rchip.mini.lost {
+  animation: chipSweepMini 0.9s 0.5s forwards;
+}
+@keyframes chipSweepMini {
+  to {
+    opacity: 0;
+    transform: translateY(-40px) scale(0.6);
+  }
+}
+
+/* racetrack */
+.rt-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 14px;
+  background: radial-gradient(120% 140% at 50% 0%, #17305a 0%, #0e1a38 70%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.rt-wrap .locked {
+  pointer-events: none;
+  opacity: 0.85;
+}
+.rt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 230, 170, 0.75);
+}
+.rt-count {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.rt-count small {
+  color: var(--muted);
+  font-weight: 700;
+}
+.rt-count b {
+  min-width: 18px;
+  text-align: center;
+  color: #fff;
+  font-size: 14px;
+}
+.rt-count .mini-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+.rt-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.racetrack.tall .rt-svg {
+  width: auto;
+  height: min(560px, 70vh);
+  margin: 0 auto;
+}
+.rt-cell {
+  cursor: pointer;
+}
+.rt-cell polygon {
+  stroke: rgba(255, 215, 140, 0.45);
+  stroke-width: 1.2;
+  transition: filter 0.12s;
+}
+.rt-cell.red polygon {
+  fill: #c81d3f;
+}
+.rt-cell.black polygon {
+  fill: #191c2c;
+}
+.rt-cell.green polygon {
+  fill: #0f9d58;
+}
+.rt-cell text {
+  fill: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  font-family: Montserrat, system-ui, sans-serif;
+  pointer-events: none;
+}
+.rt-cell.hl polygon {
+  filter: brightness(1.55);
+  stroke: #fff;
+  stroke-width: 2.4;
+}
+.rt-cell.win polygon {
+  stroke: #ffe28a;
+  stroke-width: 3.5;
+  filter: brightness(1.4);
+}
+.rt-cell.lucky polygon {
+  stroke: #ffd24a;
+  stroke-width: 3;
+  animation: rtLucky 0.6s ease-in-out infinite alternate;
+}
+@keyframes rtLucky {
+  to {
+    filter: brightness(1.6) drop-shadow(0 0 6px #ffd24a);
+  }
+}
+.rt-chip {
+  fill: #3ad0ff;
+  stroke: #fff;
+  stroke-width: 2.5;
+  stroke-dasharray: 4 3;
+}
+.rt-sec {
+  cursor: pointer;
+}
+.rt-sec polygon {
+  fill: transparent;
+  stroke: rgba(255, 215, 140, 0.35);
+  stroke-width: 1.5;
+  transition: fill 0.15s;
+}
+.rt-sec:hover polygon,
+.rt-sec.on polygon {
+  fill: rgba(255, 255, 255, 0.09);
+}
+.rt-sec text {
+  fill: rgba(255, 230, 170, 0.85);
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  pointer-events: none;
+}
+.rt-hint {
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+/* lightning */
+.bolt-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+  overflow: hidden;
+}
+.bolt {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  animation: boltLife 0.85s ease-out forwards;
+}
+.bolt-glow {
+  fill: none;
+  stroke: rgba(255, 220, 110, 0.55);
+  stroke-width: 14;
+  stroke-linejoin: round;
+  filter: blur(6px);
+}
+.bolt-core {
+  fill: none;
+  stroke: #fffbe6;
+  stroke-width: 3.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke-dasharray: 2000;
+  stroke-dashoffset: 2000;
+  animation: boltDraw 0.18s ease-out forwards;
+}
+.bolt-core.thin {
+  stroke-width: 2;
+  opacity: 0.8;
+}
+.bolt-hit {
+  fill: rgba(255, 226, 138, 0.55);
+  filter: blur(8px);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: boltHit 0.7s ease-out forwards;
+}
+@keyframes boltDraw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes boltLife {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  20% {
+    opacity: 0.6;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes boltHit {
+  from {
+    transform: scale(0.3);
+  }
+  to {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+.thunder-flash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(80% 60% at 50% 20%, rgba(255, 250, 220, 0.55), rgba(180, 160, 255, 0.15) 60%, transparent);
+  animation: flash 0.5s ease-out forwards;
+}
+@keyframes flash {
+  0% {
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  25% {
+    opacity: 0.2;
+  }
+  35% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.rl-viewtabs .seg {
+  margin: 0;
+}
+
+@media (min-width: 900px) {
+  .roulette-stage.live-table {
+    margin: -24px;
+    padding: 18px 24px 70px;
+    min-height: calc(100% + 48px);
+  }
+}
+@media (max-width: 899px) {
+  .rl-bar-row .btn-pair.four {
+    grid-template-columns: repeat(4, 40px);
+    gap: 5px;
+  }
+  .rl-bar-row .btn-pair.four .btn {
+    height: 50px;
+    padding: 0;
+  }
+  .casino-page.g-roulette .game-controls > .rl-rules {
+    order: 2;
+  }
+}
+@media (max-width: 559px) {
+  .roulette-stage.live-table {
+    margin: -12px;
+    padding: 10px 10px 56px;
+    min-height: calc(100% + 24px);
+  }
+  .rl-livebar {
+    gap: 6px;
+  }
+  .rl-table-name {
+    font-size: 12px;
+  }
+  .rl-phase {
+    font-size: 10px;
+    padding: 5px 9px;
+  }
+  .rl-top {
+    flex-direction: column;
+  }
+  .rl-side {
+    width: 100%;
+    align-items: stretch;
+  }
+  .rl-lucky-strip {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .rls {
+    padding: 3px 7px 3px 4px;
+  }
+  .rl-stats {
+    margin: 0 auto;
+    max-width: 240px;
+  }
+  .hs {
+    width: 22px;
+    height: 22px;
+  }
+  .rc-lucky {
+    top: -6px;
+    font-size: 9px;
+  }
+  .rt-wrap {
+    padding: 8px;
+  }
+  .rt-cell text {
+    font-size: 17px;
+  }
+  .rt-sec text {
+    font-size: 17px;
+  }
+}
+@media (max-width: 359px) {
+  .rl-bar-row .btn-pair.four {
+    grid-template-columns: repeat(4, 34px);
+  }
+}
+.rc-lucky {
+  top: 2px;
+  left: auto;
+  right: 2px;
+  transform: none;
+  padding: 0 4px;
+  font-size: 9px;
+  line-height: 14px;
+}
+.rboard.tall .rc-lucky {
+  top: 2px;
+  right: 2px;
+}

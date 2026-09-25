@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { LuChevronDown } from 'react-icons/lu';
 import { usd } from '../../lib/format';
 import { casino, type Card, type Round } from '../api';
-import { BetAmount, GameShell, PlayButton, PlayingCard, useBet, useCasinoConfig } from '../shared';
+import { ActionBar, BetAmount, GameShell, PlayButton, PlayingCard, useBet, useCasinoConfig } from '../shared';
 import { resultSound, sfx } from '../sound';
 
 interface Outcome {
@@ -186,6 +186,7 @@ export function HoldemGame() {
         <>
           <BetAmount value={ante} onChange={setAnte} disabled={busy || inPlay} label="Ante" />
           <BetAmount value={aa} onChange={setAa} disabled={busy || inPlay} label="AA Bonus (optional side bet)" />
+          <ActionBar>
           {inPlay ? (
             <div className="he-actions">
               <button className="btn btn-ghost" disabled={busy} onClick={() => (sfx.click(), act('fold'))}>
@@ -200,6 +201,7 @@ export function HoldemGame() {
               {v ? 'Deal again' : 'Deal'} · {usd(anteN + aaN)}
             </PlayButton>
           )}
+          </ActionBar>
           <Paytable title="Ante pays" rows={ANTE_ROWS} hit={showAll && o && v?.called && (o.winner === 'player' || !o.qualifies) ? o.playerHand : undefined} />
           <Paytable
             title="AA Bonus pays"

@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { usd } from '../../lib/format';
 import { casino, mult, sleep } from '../api';
-import { BetAmount, GameShell, InfoRow, PlayButton, Seg, useBet } from '../shared';
+import { ActionBar, BetAmount, GameShell, InfoRow, PlayButton, Seg, useBet } from '../shared';
 import { resultSound, sfx } from '../sound';
 
 type Side = 'heads' | 'tails';
@@ -94,9 +94,11 @@ export function CoinFlipGame() {
             ]}
           />
           <InfoRow label="Payout" value={`${mult(WIN)} · ${usd(stake * WIN)}`} accent />
-          <PlayButton busy={busy} onClick={play}>
-            Flip coin
-          </PlayButton>
+          <ActionBar>
+            <PlayButton busy={busy} onClick={play}>
+              Flip coin
+            </PlayButton>
+          </ActionBar>
         </>
       }
       stage={

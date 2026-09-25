@@ -51,7 +51,7 @@ Eleven in-house games at `/casino`, all on the same wallet and ledger (`CASINO_B
 | Keno | 40 numbers, 10 drawn, 1–10 picks, Easy / Medium / Hard / Expert paytables | ≈99% |
 | Rock Paper Scissors | Win 1.96×, draw returns the stake | 98.7% |
 | Coin Flip | 50/50, pays 1.98× | 99% |
-| Roulette | European single zero, standard payouts | 97.3% |
+| Roulette | European single zero. Live-style 3D wheel, full table with splits, streets, corners, six lines and first four, plus a French racetrack (neighbours ±1–5, Voisins, Tiers, Orphelins, Jeu zéro). **Thunder** table: 1–5 lucky numbers struck each round at 50×–500×, straight-ups otherwise 29:1 | 97.3% (Thunder straight-up 97.33%) |
 | Blackjack | Infinite deck, 3:2, dealer stands on 17, double any two, one split, dealer peeks | ≈99.4% |
 | HiLo | Higher/lower on the next card, 1% edge per guess, cash out any time | 99% per guess |
 | Chicken Road | Cross lanes (Easy 24 … Expert 15), multiplier 0.99/(1−p)^lanes, cash out any time | 99% |

@@ -6,7 +6,7 @@ import { asyncH, HttpError } from '../lib/http';
 import { prisma } from '../lib/prisma';
 import { requireAuth } from '../middleware/auth';
 import {
-  COIN_WIN, DICE_EDGE, KENO_RISKS, playCoinflip, playDice, playKeno, playRoulette, playRps, RPS, RPS_WIN, WHEEL_ORDER,
+  COIN_WIN, DICE_EDGE, KENO_RISKS, THUNDER_COUNTS, THUNDER_MULTS, THUNDER_RTP, THUNDER_STRAIGHT, playCoinflip, playDice, playKeno, playRoulette, playRps, RPS, RPS_WIN, WHEEL_ORDER,
   type RouletteBet,
 } from '../casino/engine/instant';
 import { KENO_TABLES, type KenoRisk } from '../casino/engine/kenoTables';
@@ -36,7 +36,7 @@ r.get('/config', (_req, res) => {
     keno: { tables: KENO_TABLES },
     rps: { win: RPS_WIN },
     coinflip: { win: COIN_WIN },
-    roulette: { order: WHEEL_ORDER },
+    roulette: { order: WHEEL_ORDER, thunder: { straight: THUNDER_STRAIGHT, counts: THUNDER_COUNTS, multipliers: THUNDER_MULTS, rtp: THUNDER_RTP } },
     wheel: { tables: WHEEL_TABLES },
     tower: { floors: TOWER_FLOORS, levels: Object.fromEntries(Object.entries(TOWER_LEVELS).map(([k, v]) => [k, { ...v, ladder: towerLadder(k as TowerLevel) }])) },
     holdem: { hands: HAND_NAMES, ante: ANTE_PAYS, aa: AA_PAYS },
@@ -126,17 +126,19 @@ r.post(
             bets: z
               .array(
                 z.object({
-                  type: z.enum(['straight', 'red', 'black', 'odd', 'even', 'low', 'high', 'dozen', 'column']),
+                  type: z.enum(['straight', 'split', 'street', 'corner', 'line', 'red', 'black', 'odd', 'even', 'low', 'high', 'dozen', 'column']),
                   value: z.number().int().optional(),
+                  numbers: z.array(z.number().int().min(0).max(36)).min(2).max(6).optional(),
                   amount: z.number().positive(),
                 })
               )
               .min(1)
-              .max(60),
+              .max(200),
+            mode: z.enum(['classic', 'thunder']).optional(),
           })
           .parse(req.body);
         const total = Math.round(b.bets.reduce((a, x) => a + x.amount, 0) * 100) / 100;
-        out = await playInstant(uid, game, total, (rng) => playRoulette({ bets: b.bets as RouletteBet[] }, rng));
+        out = await playInstant(uid, game, total, (rng) => playRoulette({ bets: b.bets as RouletteBet[], mode: b.mode }, rng));
         break;
       }
       case 'wheel': {

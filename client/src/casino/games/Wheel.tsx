@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usd } from '../../lib/format';
 import { casino, mult } from '../api';
-import { BetAmount, GameShell, InfoRow, PlayButton, Seg, useBet, useCasinoConfig } from '../shared';
+import { ActionBar, BetAmount, GameShell, InfoRow, PlayButton, Seg, useBet, useCasinoConfig } from '../shared';
 import { resultSound, sfx } from '../sound';
 
 type Risk = 'easy' | 'medium' | 'hard';
@@ -176,9 +176,11 @@ export function WheelGame() {
           />
           <span className="field-label">Segments</span>
           <Seg value={String(segments)} onChange={(v) => setSegments(Number(v))} disabled={busy} options={SEGMENTS.map((n) => ({ v: String(n), label: String(n) }))} />
-          <PlayButton busy={busy} onClick={play}>
-            Spin
-          </PlayButton>
+          <ActionBar>
+            <PlayButton busy={busy} onClick={play}>
+              Spin
+            </PlayButton>
+          </ActionBar>
           <InfoRow label="Max multiplier" value={mult(maxM)} />
           <InfoRow label="Max profit" value={usd(stake * maxM - stake)} accent />
         </>
