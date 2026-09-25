@@ -6,6 +6,8 @@ import { Link, useRouter } from '../lib/router';
 import { useAuth, useSlip } from '../lib/state';
 import type { Sport } from '../lib/types';
 import { Logo, SportIcon } from './ui';
+import { LuDices } from 'react-icons/lu';
+import { GAMES } from '../casino/meta';
 
 export function useSports() {
   const [sports, setSports] = useState<Sport[]>([]);
@@ -146,6 +148,21 @@ export function Sidebar({ collapsed, sports }: { collapsed: boolean; sports: Spo
           </details>
         ))}
       </div>
+      <div className="side-label">
+        Wavy Originals <span className="new-pill">NEW</span>
+      </div>
+      <div className="side-section">
+        <Link to="/casino" className={`side-item${path === '/casino' ? ' active' : ''}`} title="All Originals">
+          <LuDices size={18} />
+          <span>All games</span>
+        </Link>
+        {GAMES.map((g) => (
+          <Link key={g.id} to={g.path} className={`side-sub casino-sub${path === g.path ? ' active' : ''}`}>
+            <g.Icon size={15} />
+            <span className="ellipsis">{g.name}</span>
+          </Link>
+        ))}
+      </div>
       <div className="side-label">Help</div>
       <div className="side-section">
         <Link to="/responsible-gambling" className="side-item" title="Responsible gambling">
@@ -177,6 +194,11 @@ export function SportStrip({ sports }: { sports: Sport[] }) {
         <LuTicket size={20} />
       </Link>
       <span className="strip-sep" />
+      <Link to="/casino" className={`strip-btn strip-originals${path.startsWith('/casino') ? ' active' : ''}`} title="Wavy Originals">
+        <LuDices size={19} />
+        <span>Originals</span>
+        <i>NEW</i>
+      </Link>
       {groups.map((s) => (
         <Link key={s.group} to={`/group/${encodeURIComponent(s.group)}`} className={`strip-btn${path === `/group/${encodeURIComponent(s.group)}` ? ' active' : ''}`} title={s.group}>
           <SportIcon sportKey={s.key} size={21} />

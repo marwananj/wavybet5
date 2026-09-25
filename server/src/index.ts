@@ -14,6 +14,7 @@ import walletRoutes from './routes/wallet';
 import eventRoutes from './routes/events';
 import betRoutes from './routes/bets';
 import adminRoutes from './routes/admin';
+import casinoRoutes from './routes/casino';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -29,6 +30,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/bets', betRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/casino', casinoRoutes);
 app.use('/api', eventRoutes);
 
 // Serve the built frontend when it sits next to the server (single-container deploy)

@@ -77,7 +77,7 @@ export interface Bet {
 
 export interface Tx {
   id: string;
-  type: 'DEPOSIT' | 'WITHDRAWAL' | 'BET_STAKE' | 'BET_PAYOUT' | 'BET_REFUND' | 'ADJUSTMENT';
+  type: 'DEPOSIT' | 'WITHDRAWAL' | 'BET_STAKE' | 'BET_PAYOUT' | 'BET_REFUND' | 'ADJUSTMENT' | 'CASINO_BET' | 'CASINO_WIN';
   status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
   amount: string;
   balanceAfter: string | null;

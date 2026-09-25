@@ -99,6 +99,12 @@ export const config = {
       .map(([k, v]) => [k.slice('DEPOSIT_WALLET_'.length, -'_MEMO'.length).toLowerCase().replace(/_/g, ''), v!.trim()])
   ) as Record<string, string>,
 
+  // Wavy Originals (casino)
+  casinoEnabled: (process.env.CASINO_ENABLED ?? 'true') === 'true',
+  casinoMinStake: num('CASINO_MIN_STAKE', 0.1),
+  casinoMaxStake: num('CASINO_MAX_STAKE', 1000),
+  casinoMaxPayout: num('CASINO_MAX_PAYOUT', 20000),
+
   // NOWPayments
   npApiKey: process.env.NOWPAYMENTS_API_KEY ?? '',
   npIpnSecret: process.env.NOWPAYMENTS_IPN_SECRET ?? '',

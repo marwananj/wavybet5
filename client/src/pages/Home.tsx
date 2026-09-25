@@ -7,9 +7,19 @@ import { useAuth } from '../lib/state';
 import type { Sport, SportEvent } from '../lib/types';
 import { EventCard, FeaturedCard } from '../components/EventCard';
 import { SportStrip } from '../components/Layout';
+import { OriginalsRow } from '../casino/Lobby';
 import { Empty, Skeleton, SportIcon } from '../components/ui';
 
-const SLIDES = [
+const SLIDES: { kicker: string; title: string; text: string; cta: string; to: string; tone: string; open?: boolean }[] = [
+  {
+    kicker: 'NEW · WAVY ORIGINALS',
+    title: 'Casino games, made by us',
+    text: 'Dice, Roulette, Blackjack, Chicken Road, Keno, HiLo, Coin Flip and RPS — provably fair with up to 99% RTP.',
+    cta: 'Play Originals',
+    to: '/casino',
+    tone: 'violet',
+    open: true,
+  },
   {
     kicker: 'CRYPTO SPORTSBOOK',
     title: 'Bet on the wave',
@@ -57,7 +67,7 @@ function Hero() {
         <span className="hero-kicker">{s.kicker}</span>
         <h2>{s.title}</h2>
         <p>{s.text}</p>
-        {user ? (
+        {user || s.open ? (
           <Link to={s.to} className="btn btn-white">
             {s.cta}
           </Link>
@@ -151,6 +161,7 @@ export function HomePage({ sports }: { sports: Sport[] }) {
       </div>
 
       {tab === 'popular' && <Hero />}
+      {tab === 'popular' && <OriginalsRow />}
       {tab === 'popular' && (featured === null ? <div className="carousel"><Skeleton h={190} count={3} /></div> : featured.length > 0 && <Carousel events={featured} />)}
 
       {tab !== 'live' && (

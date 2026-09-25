@@ -316,7 +316,7 @@ r.get(
   requireAuth,
   asyncH(async (req, res) => {
     const q = z
-      .object({ type: z.enum(['DEPOSIT', 'WITHDRAWAL', 'BET_STAKE', 'BET_PAYOUT', 'BET_REFUND', 'ADJUSTMENT']).optional(), cursor: z.string().optional() })
+      .object({ type: z.enum(['DEPOSIT', 'WITHDRAWAL', 'BET_STAKE', 'BET_PAYOUT', 'BET_REFUND', 'ADJUSTMENT', 'CASINO_BET', 'CASINO_WIN']).optional(), cursor: z.string().optional() })
       .parse(req.query);
     const items = await prisma.transaction.findMany({
       where: { userId: req.user!.id, ...(q.type ? { type: q.type } : {}) },

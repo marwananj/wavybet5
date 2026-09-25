@@ -8,7 +8,7 @@ import { Empty, Skeleton, Spinner } from '../components/ui';
 
 type Stats = {
   users: number; newUsers30d: number; deposits30d: { sum: number; count: number }; withdrawals30d: { sum: number; count: number };
-  pendingWithdrawals: { sum: number; count: number }; pendingDeposits?: { sum: number; count: number }; paymentMode?: string; openBets: { count: number; stake: number; liability: number };
+  pendingWithdrawals: { sum: number; count: number }; pendingDeposits?: { sum: number; count: number }; paymentMode?: string; casino30d?: { rounds: number; wagered: number; ggr: number }; openBets: { count: number; stake: number; liability: number };
   ggr30d: number; playerBalances: number; oddsQuotaRemaining: number | null; withdrawalMode: string; feed: string;
 };
 
@@ -38,7 +38,8 @@ function Dashboard() {
     ['Withdrawals 30d', usd(s.withdrawals30d.sum), `${s.withdrawals30d.count} payouts`],
     ['Deposits to approve', usd(s.pendingDeposits?.sum ?? 0), `${s.pendingDeposits?.count ?? 0} waiting`],
     ['Pending withdrawals', usd(s.pendingWithdrawals.sum), `${s.pendingWithdrawals.count} waiting`],
-    ['GGR 30d', usd(s.ggr30d), 'Stakes − payouts'],
+    ['GGR 30d', usd(s.ggr30d), 'Sportsbook stakes − payouts'],
+    ['Casino GGR 30d', usd(s.casino30d?.ggr ?? 0), `${s.casino30d?.rounds ?? 0} rounds · ${usd(s.casino30d?.wagered ?? 0)} wagered`],
     ['Open bets', String(s.openBets.count), `${usd(s.openBets.stake)} staked`],
     ['Max liability', usd(s.openBets.liability), 'If every open bet wins'],
     ['Player balances', usd(s.playerBalances), 'Owed to players'],

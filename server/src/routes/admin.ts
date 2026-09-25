@@ -19,7 +19,7 @@ r.get(
   '/stats',
   asyncH(async (_req, res) => {
     const since = new Date(Date.now() - 30 * 86400_000);
-    const [users, newUsers, deposits, withdrawals, pendingW, pendingD, openBets, stakes, payouts, balances, quota] = await Promise.all([
+    const [users, newUsers, deposits, withdrawals, pendingW, pendingD, openBets, stakes, payouts, balances, quota, casino] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { createdAt: { gte: since } } }),
       prisma.transaction.aggregate({ where: { type: 'DEPOSIT', status: 'COMPLETED', createdAt: { gte: since } }, _sum: { amount: true }, _count: true }),
@@ -31,6 +31,7 @@ r.get(
       prisma.bet.aggregate({ where: { settledAt: { gte: since } }, _sum: { payout: true } }),
       prisma.user.aggregate({ _sum: { balance: true } }),
       prisma.setting.findUnique({ where: { key: 'odds_quota_remaining' } }),
+      prisma.casinoRound.aggregate({ where: { createdAt: { gte: since }, status: { not: 'ACTIVE' } }, _sum: { stake: true, payout: true }, _count: true }),
     ]);
     const n = (v: unknown) => Number(v ?? 0);
     res.json({
@@ -40,6 +41,7 @@ r.get(
       pendingWithdrawals: { sum: Math.abs(n(pendingW._sum.amount)), count: pendingW._count },
       pendingDeposits: { sum: n(pendingD._sum.amount), count: pendingD._count },
       paymentMode: config.paymentMode,
+      casino30d: { rounds: casino._count, wagered: n(casino._sum.stake), ggr: n(casino._sum.stake) - n(casino._sum.payout) },
       openBets: { count: openBets._count, stake: n(openBets._sum.stake), liability: n(openBets._sum.potentialPayout) },
       ggr30d: n(stakes._sum.stake) - n(payouts._sum.payout),
       playerBalances: n(balances._sum.balance),

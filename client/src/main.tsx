@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles/app.css';
+import './casino/casino.css';
 import { RouterProvider, match, useRouter } from './lib/router';
 import { AuthProvider, SlipProvider, ToastProvider } from './lib/state';
 import { Header, MobileNav, Sidebar, useSports } from './components/Layout';
@@ -12,6 +13,32 @@ import { BetsPage } from './pages/Bets';
 import { WalletPage } from './pages/Wallet';
 import { AccountPage, InfoPage } from './pages/Account';
 import { AdminPage } from './pages/Admin';
+import { CasinoLobby } from './casino/Lobby';
+import { DiceGame } from './casino/games/Dice';
+import { KenoGame } from './casino/games/Keno';
+import { RpsGame } from './casino/games/Rps';
+import { CoinFlipGame } from './casino/games/CoinFlip';
+import { RouletteGame } from './casino/games/Roulette';
+import { BlackjackGame } from './casino/games/Blackjack';
+import { HiloGame } from './casino/games/HiLo';
+import { ChickenGame } from './casino/games/Chicken';
+import { WheelGame } from './casino/games/Wheel';
+import { TowerGame } from './casino/games/Tower';
+import { HoldemGame } from './casino/games/Holdem';
+
+const CASINO: Record<string, () => JSX.Element> = {
+  dice: DiceGame,
+  keno: KenoGame,
+  rps: RpsGame,
+  coinflip: CoinFlipGame,
+  roulette: RouletteGame,
+  blackjack: BlackjackGame,
+  hilo: HiloGame,
+  chicken: ChickenGame,
+  wheel: WheelGame,
+  tower: TowerGame,
+  holdem: HoldemGame,
+};
 import { Empty } from './components/ui';
 import { Link } from './lib/router';
 import type { Sport } from './lib/types';
@@ -26,11 +53,16 @@ function Routes({ sports }: { sports: Sport[] }) {
   if (path === '/wallet') return <WalletPage />;
   if (path === '/account') return <AccountPage />;
   if (path === '/admin') return <AdminPage />;
+  if (path === '/casino') return <CasinoLobby />;
   if (path === '/terms') return <InfoPage kind="terms" />;
   if (path === '/responsible-gambling') return <InfoPage kind="responsible" />;
   if ((m = match('/sport/:key', path))) return <SportPage key={m.key} sportKey={m.key} sports={sports} />;
   if ((m = match('/group/:group', path))) return <SportPage key={m.group} group={m.group} sports={sports} />;
   if ((m = match('/event/:id', path))) return <EventPage key={m.id} id={m.id} />;
+  if ((m = match('/casino/:game', path)) && CASINO[m.game]) {
+    const G = CASINO[m.game];
+    return <G key={m.game} />;
+  }
   return <div className="page"><Empty title="Page not found" action={<Link to="/" className="btn btn-primary">Go home</Link>} /></div>;
 }
 

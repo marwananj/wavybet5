@@ -19,6 +19,8 @@ enum TxType {
   BET_PAYOUT
   BET_REFUND
   ADJUSTMENT
+  CASINO_BET
+  CASINO_WIN
 }
 
 enum TxStatus {
@@ -61,6 +63,8 @@ model User {
   refreshTokens     RefreshToken[]
   transactions      Transaction[]
   bets              Bet[]
+  fairSeeds         FairSeed[]
+  casinoRounds      CasinoRound[]
 }
 
 model RefreshToken {
@@ -211,4 +215,45 @@ model BetSelection {
 model Setting {
   key   String @id
   value String
+}
+
+/// Provably fair seed pair. serverSeed stays secret until the player rotates to a new pair.
+model FairSeed {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serverSeed     String
+  serverSeedHash String
+  clientSeed     String
+  nonce          Int           @default(0)
+  active         Boolean       @default(true)
+  revealedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  rounds         CasinoRound[]
+
+  @@index([userId, active])
+}
+
+/// One casino round (instant or multi-step). state holds the full game state (incl. hidden parts).
+model CasinoRound {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  game       String
+  stake      Decimal   @db.Decimal(18, 2)
+  payout     Decimal   @default(0) @db.Decimal(18, 2)
+  multiplier Decimal   @default(0) @db.Decimal(14, 4)
+  /// ACTIVE | WON | LOST | PUSH | CASHED
+  status     String
+  seedId     String
+  seed       FairSeed  @relation(fields: [seedId], references: [id])
+  nonce      Int
+  state      Json
+  version    Int       @default(0)
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([userId, game, status])
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }

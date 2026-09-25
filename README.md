@@ -41,6 +41,32 @@ With `PAYMENT_MODE=manual` no payment provider is needed:
 
 Switch to automatic crypto processing later with `PAYMENT_MODE=nowpayments` and the NOWPayments keys.
 
+## Wavy Originals (casino)
+
+Eleven in-house games at `/casino`, all on the same wallet and ledger (`CASINO_BET` / `CASINO_WIN` transactions):
+
+| Game | Rules | RTP |
+|---|---|---|
+| Dice | Roll 0.00–99.99, over/under a target, multiplier = 99 / win chance | 99% |
+| Keno | 40 numbers, 10 drawn, 1–10 picks, Easy / Medium / Hard / Expert paytables | ≈99% |
+| Rock Paper Scissors | Win 1.96×, draw returns the stake | 98.7% |
+| Coin Flip | 50/50, pays 1.98× | 99% |
+| Roulette | European single zero, standard payouts | 97.3% |
+| Blackjack | Infinite deck, 3:2, dealer stands on 17, double any two, one split, dealer peeks | ≈99.4% |
+| HiLo | Higher/lower on the next card, 1% edge per guess, cash out any time | 99% per guess |
+| Chicken Road | Cross lanes (Easy 24 … Expert 15), multiplier 0.99/(1−p)^lanes, cash out any time | 99% |
+| Wheel | 10–50 equal segments, Easy / Medium / Hard tables (Hard pays up to 49.5×) | 99% exactly |
+| Casino Hold'em | Ante vs dealer, flop then Fold or Call 2×; dealer qualifies with 4s; Ante pays 100/20/10/3/2/1; AA Bonus side bet (hole + flop, pair of Aces or better, 7:1 … 100:1) | Ante ≈97.8% with optimal play, AA Bonus 93.7% |
+| Tower | 9 floors, pick one tile per floor (Easy 3 of 4 safe … Expert 1 of 3), multiplier 0.99/p^floors, cash out any time | 99% |
+
+RTPs were checked by simulating millions of rounds against the engine code in `server/src/casino/engine`. The Hold'em hand evaluator was verified against the exact counts of all 2,598,960 five-card hands, and the AA Bonus return was computed exactly (93.74%).
+
+Every game has synthesized sound effects (Web Audio, no files) with a mute button in the game header; the choice is remembered per browser.
+
+**Provably fair:** each round uses `HMAC_SHA256(serverSeed, "clientSeed:nonce:cursor")`. Players see the SHA-256 of their server seed, can set their own client seed, and changing seeds reveals the previous server seed (Fairness button in every game). Multi-step games (Blackjack, HiLo, Chicken, Tower, Hold'em) are fixed at the start of the round and stored server-side; concurrent requests are guarded with optimistic locking.
+
+Limits: `CASINO_MIN_STAKE`, `CASINO_MAX_STAKE`, `CASINO_MAX_PAYOUT`; `CASINO_ENABLED=false` closes the casino. Self-excluded players can't play.
+
 ## Live in-play betting
 
 With API-Football, matches in play get live odds (1X2, main Over/Under line, Both Teams to Score) refreshed every `LIVE_ODDS_INTERVAL_MS` (5 s) from `/odds/live`, and the official score and minute every `LIVE_SCORE_INTERVAL_MS` (10 s) from `/fixtures?live=all`. Every change is pushed instantly to open browsers over Server-Sent Events (`/api/live/stream`); the pages also poll slowly as a fallback. Markets suspend automatically when:

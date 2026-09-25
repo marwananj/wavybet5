@@ -385,6 +385,8 @@ const TX_LABEL: Record<Tx['type'], string> = {
   BET_PAYOUT: 'Bet won',
   BET_REFUND: 'Bet refund',
   ADJUSTMENT: 'Adjustment',
+  CASINO_BET: 'Casino bet',
+  CASINO_WIN: 'Casino win',
 };
 
 function HistoryTab() {
@@ -423,6 +425,7 @@ function HistoryTab() {
           ['WITHDRAWAL', 'Withdrawals'],
           ['BET_STAKE', 'Bets'],
           ['BET_PAYOUT', 'Wins'],
+          ['CASINO_BET', 'Casino'],
         ].map(([k, l]) => (
           <button key={k} className={`chip${filter === k ? ' on' : ''}`} onClick={() => setFilter(k)}>
             {l}
