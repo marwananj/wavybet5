@@ -1,0 +1,214 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum TxType {
+  DEPOSIT
+  WITHDRAWAL
+  BET_STAKE
+  BET_PAYOUT
+  BET_REFUND
+  ADJUSTMENT
+}
+
+enum TxStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum BetStatus {
+  OPEN
+  WON
+  LOST
+  VOID
+}
+
+enum EventStatus {
+  UPCOMING
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id                String         @id @default(cuid())
+  email             String         @unique
+  username          String         @unique
+  passwordHash      String
+  role              Role           @default(USER)
+  balance           Decimal        @default(0) @db.Decimal(18, 2)
+  dateOfBirth       DateTime
+  country           String
+  kycStatus         String         @default("NONE")
+  isBanned          Boolean        @default(false)
+  selfExcludedUntil DateTime?
+  dailyDepositLimit Decimal?       @db.Decimal(18, 2)
+  lastLoginAt       DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  refreshTokens     RefreshToken[]
+  transactions      Transaction[]
+  bets              Bet[]
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// Ledger. amount is signed: credits > 0, debits < 0.
+model Transaction {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  type           TxType
+  status         TxStatus @default(PENDING)
+  amount         Decimal  @db.Decimal(18, 2)
+  balanceAfter   Decimal? @db.Decimal(18, 2)
+  cryptoCurrency String?
+  cryptoAmount   String?
+  address        String?
+  txHash         String?
+  providerId     String?  @unique
+  betId          String?
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([type, status])
+}
+
+model Sport {
+  key         String  @id
+  group       String
+  title       String
+  description String?
+  active      Boolean @default(true)
+  enabled     Boolean @default(false)
+  /// theoddsapi | apifootball
+  provider    String  @default("theoddsapi")
+  season      Int?
+  country     String?
+  logo        String?
+  events      Event[]
+}
+
+model Event {
+  id             String      @id
+  sportKey       String
+  sport          Sport       @relation(fields: [sportKey], references: [key])
+  sportTitle     String
+  commenceTime   DateTime
+  homeTeam       String
+  awayTeam       String
+  homeLogo       String?
+  awayLogo       String?
+  status         EventStatus @default(UPCOMING)
+  homeScore      Int?
+  awayScore      Int?
+  featured       Boolean     @default(false)
+  lastOddsUpdate DateTime?
+  lastScoreSync  DateTime?
+  /// In-play state (owned by the live odds job)
+  liveElapsed        Int?
+  liveUpdatedAt      DateTime?
+  liveSuspendedUntil DateTime?
+  liveBlocked        Boolean  @default(false)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  markets        Market[]
+
+  @@index([sportKey, commenceTime])
+  @@index([status, commenceTime])
+}
+
+model Market {
+  id        String    @id @default(cuid())
+  eventId   String
+  event     Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  key       String
+  suspended Boolean   @default(false)
+  updatedAt DateTime  @updatedAt
+  outcomes  Outcome[]
+
+  @@unique([eventId, key])
+}
+
+model Outcome {
+  id        String   @id @default(cuid())
+  marketId  String
+  market    Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  /// home | away | draw | over | under | yes | no | home_draw | home_away | draw_away
+  code      String
+  name      String
+  price     Decimal  @db.Decimal(10, 2)
+  point     Decimal? @db.Decimal(8, 2)
+  /// false = removed from the book (hidden); suspended = temporarily locked (shown)
+  active    Boolean  @default(true)
+  suspended Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+
+  @@unique([marketId, code])
+}
+
+model Bet {
+  id              String         @id @default(cuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id])
+  type            String
+  stake           Decimal        @db.Decimal(18, 2)
+  totalOdds       Decimal        @db.Decimal(14, 2)
+  potentialPayout Decimal        @db.Decimal(18, 2)
+  payout          Decimal?       @db.Decimal(18, 2)
+  status          BetStatus      @default(OPEN)
+  createdAt       DateTime       @default(now())
+  settledAt       DateTime?
+  selections      BetSelection[]
+
+  @@index([userId, status, createdAt])
+  @@index([status])
+}
+
+model BetSelection {
+  id           String    @id @default(cuid())
+  betId        String
+  bet          Bet       @relation(fields: [betId], references: [id], onDelete: Cascade)
+  eventId      String
+  outcomeId    String
+  marketKey    String
+  outcomeCode  String
+  outcomeName  String
+  point        Decimal?  @db.Decimal(8, 2)
+  odds         Decimal   @db.Decimal(10, 2)
+  status       BetStatus @default(OPEN)
+  eventLabel   String
+  sportTitle   String
+  commenceTime DateTime
+
+  @@index([eventId, status])
+}
+
+model Setting {
+  key   String @id
+  value String
+}

@@ -1,0 +1,241 @@
+import { useEffect, useState } from 'react';
+import { LuHouse, LuRadio, LuTicket, LuWallet, LuSearch, LuUser, LuLogOut, LuShield, LuHistory, LuSettings, LuMenu, LuChevronLeft, LuHeadphones, LuStar } from 'react-icons/lu';
+import { api } from '../lib/api';
+import { usd } from '../lib/format';
+import { Link, useRouter } from '../lib/router';
+import { useAuth, useSlip } from '../lib/state';
+import type { Sport } from '../lib/types';
+import { Logo, SportIcon } from './ui';
+
+export function useSports() {
+  const [sports, setSports] = useState<Sport[]>([]);
+  useEffect(() => {
+    api<{ sports: Sport[] }>('/sports').then((d) => setSports(d.sports)).catch(() => {});
+  }, []);
+  return sports;
+}
+
+export function Header({ onMenu }: { onMenu: () => void }) {
+  const { user, openAuth, logout } = useAuth();
+  const { navigate } = useRouter();
+  const [menu, setMenu] = useState(false);
+  useEffect(() => {
+    if (!menu) return;
+    const c = () => setMenu(false);
+    window.addEventListener('click', c);
+    return () => window.removeEventListener('click', c);
+  }, [menu]);
+
+  return (
+    <header className="topbar">
+      <div className="topbar-left">
+        <button className="icon-btn hide-mobile" onClick={onMenu} aria-label="Toggle menu">
+          <LuMenu size={20} />
+        </button>
+        <Link to="/" className="brand">
+          <Logo />
+        </Link>
+      </div>
+      <div className="topbar-right">
+        <button className="icon-btn" onClick={() => navigate('/search')} aria-label="Search">
+          <LuSearch size={19} />
+        </button>
+        {user ? (
+          <>
+            <div className="balance-pill">
+              <span className="balance-amt">{usd(user.balance)}</span>
+              <Link to="/wallet" className="btn btn-primary btn-sm">
+                <LuWallet size={16} />
+                <span className="hide-xs">Wallet</span>
+              </Link>
+            </div>
+            <div className="user-menu">
+              <button
+                className="avatar"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenu((m) => !m);
+                }}
+                aria-label="Account menu"
+              >
+                {user.username.slice(0, 2).toUpperCase()}
+              </button>
+              {menu && (
+                <div className="dropdown">
+                  <div className="dropdown-head">
+                    <b>{user.username}</b>
+                    <span>{user.email}</span>
+                  </div>
+                  <Link to="/bets" className="dropdown-item">
+                    <LuTicket size={16} /> My bets
+                  </Link>
+                  <Link to="/wallet?tab=history" className="dropdown-item">
+                    <LuHistory size={16} /> Transactions
+                  </Link>
+                  <Link to="/account" className="dropdown-item">
+                    <LuSettings size={16} /> Settings & limits
+                  </Link>
+                  {user.role === 'ADMIN' && (
+                    <Link to="/admin" className="dropdown-item">
+                      <LuShield size={16} /> Admin panel
+                    </Link>
+                  )}
+                  <button className="dropdown-item danger" onClick={() => logout().then(() => navigate('/'))}>
+                    <LuLogOut size={16} /> Log out
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <button className="btn btn-ghost btn-sm" onClick={() => openAuth('login')}>
+              Log in
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={() => openAuth('register')}>
+              Register
+            </button>
+          </>
+        )}
+      </div>
+    </header>
+  );
+}
+
+export function Sidebar({ collapsed, sports }: { collapsed: boolean; sports: Sport[] }) {
+  const { path } = useRouter();
+  // with 100+ competitions, only list those that currently have matches (busiest first)
+  const groups = sports
+    .filter((s) => s.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .reduce<Record<string, Sport[]>>((acc, s) => {
+      (acc[s.group] ??= []).push(s);
+      return acc;
+    }, {});
+  return (
+    <nav className={`sidebar${collapsed ? ' collapsed' : ''}`} aria-label="Sports">
+      <div className="side-section">
+        <Link to="/" className={`side-item${path === '/' ? ' active' : ''}`} title="Home">
+          <LuHouse size={18} />
+          <span>Home</span>
+        </Link>
+        <Link to="/live" className={`side-item${path === '/live' ? ' active' : ''}`} title="Live">
+          <LuRadio size={18} />
+          <span>Live</span>
+        </Link>
+        <Link to="/bets" className={`side-item${path === '/bets' ? ' active' : ''}`} title="My bets">
+          <LuTicket size={18} />
+          <span>My bets</span>
+        </Link>
+      </div>
+      <div className="side-label">Sports</div>
+      <div className="side-section">
+        {Object.entries(groups).map(([g, list]) => (
+          <details key={g} className="side-group" open={list.some((s) => path === `/sport/${s.key}`)}>
+            <summary className="side-item" title={g}>
+              <SportIcon sportKey={list[0].key} />
+              <span>{g}</span>
+              <em>{list.reduce((a, s) => a + s.count, 0)}</em>
+            </summary>
+            {list.map((s) => (
+              <Link key={s.key} to={`/sport/${s.key}`} className={`side-sub${path === `/sport/${s.key}` ? ' active' : ''}`}>
+                <span className="ellipsis">{s.title}</span>
+                <em>{s.count}</em>
+              </Link>
+            ))}
+          </details>
+        ))}
+      </div>
+      <div className="side-label">Help</div>
+      <div className="side-section">
+        <Link to="/responsible-gambling" className="side-item" title="Responsible gambling">
+          <LuStar size={18} />
+          <span>Responsible gambling</span>
+        </Link>
+        <a className="side-item" href="mailto:support@wavybet.com" title="Support">
+          <LuHeadphones size={18} />
+          <span>Support</span>
+        </a>
+      </div>
+    </nav>
+  );
+}
+
+/** Horizontal icon strip like the reference lobby */
+export function SportStrip({ sports }: { sports: Sport[] }) {
+  const { path } = useRouter();
+  const groups = Array.from(new Map(sports.map((s) => [s.group, s])).values());
+  return (
+    <div className="sport-strip" role="navigation" aria-label="Sport shortcuts">
+      <Link to="/" className={`strip-btn${path === '/' ? ' active' : ''}`} title="Home">
+        <LuHouse size={20} />
+      </Link>
+      <Link to="/live" className={`strip-btn live${path === '/live' ? ' active' : ''}`} title="Live">
+        <span className="live-tag">LIVE</span>
+      </Link>
+      <Link to="/bets" className={`strip-btn${path === '/bets' ? ' active' : ''}`} title="My bets">
+        <LuTicket size={20} />
+      </Link>
+      <span className="strip-sep" />
+      {groups.map((s) => (
+        <Link key={s.group} to={`/group/${encodeURIComponent(s.group)}`} className={`strip-btn${path === `/group/${encodeURIComponent(s.group)}` ? ' active' : ''}`} title={s.group}>
+          <SportIcon sportKey={s.key} size={21} />
+        </Link>
+      ))}
+      <Link to="/search" className="strip-btn strip-search" title="Search">
+        <LuSearch size={20} />
+      </Link>
+    </div>
+  );
+}
+
+export function MobileNav() {
+  const { path } = useRouter();
+  const slip = useSlip();
+  const { user, openAuth } = useAuth();
+  return (
+    <nav className="mobile-nav" aria-label="Main">
+      <Link to="/" className={path === '/' ? 'on' : ''}>
+        <LuHouse size={21} />
+        <span>Sports</span>
+      </Link>
+      <Link to="/live" className={path === '/live' ? 'on' : ''}>
+        <LuRadio size={21} />
+        <span>Live</span>
+      </Link>
+      <button className={`mnav-slip${slip.open ? ' on' : ''}`} onClick={() => slip.setOpen(!slip.open)}>
+        <span className="mnav-slip-icon">
+          <LuTicket size={22} />
+          {slip.picks.length > 0 && <i>{slip.picks.length}</i>}
+        </span>
+        <span>Betslip</span>
+      </button>
+      <Link to="/bets" className={path === '/bets' ? 'on' : ''}>
+        <LuHistory size={21} />
+        <span>My bets</span>
+      </Link>
+      {user ? (
+        <Link to="/account" className={path === '/account' ? 'on' : ''}>
+          <LuUser size={21} />
+          <span>Account</span>
+        </Link>
+      ) : (
+        <button onClick={() => openAuth('login')}>
+          <LuUser size={21} />
+          <span>Log in</span>
+        </button>
+      )}
+    </nav>
+  );
+}
+
+export function BackBar({ title }: { title: string }) {
+  return (
+    <div className="backbar">
+      <button className="icon-btn" onClick={() => window.history.back()} aria-label="Back">
+        <LuChevronLeft size={20} />
+      </button>
+      <h1>{title}</h1>
+    </div>
+  );
+}
