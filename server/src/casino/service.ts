@@ -21,6 +21,7 @@ export const GAME_NAMES: Record<string, string> = {
   wheel: 'Wheel',
   holdem: "Casino Hold'em",
   tower: 'Tower',
+  horses: 'Wavy Horse Racing',
 };
 
 /* ------------------------------- seeds -------------------------------- */
@@ -112,14 +113,14 @@ export async function playInstant(
   userId: string,
   game: string,
   stakeNum: number,
-  play: (rng: Rng) => InstantResult
+  play: (rng: Rng, ctx: { clientSeed: string; nonce: number }) => InstantResult
 ) {
   await assertCanPlay(userId);
   const stake = checkStake(stakeNum);
   return prisma.$transaction(async (db) => {
     const { seed, nonce, rng } = await takeNonce(db, userId);
     await applyBalanceChange(db, { userId, amount: stake.negated(), type: 'CASINO_BET', note: GAME_NAMES[game] });
-    const r = wrapGameErrors(() => play(rng));
+    const r = wrapGameErrors(() => play(rng, { clientSeed: seed.clientSeed, nonce }));
     const payout = cap(r.payout != null ? money(r.payout) : money(stake.mul(r.multiplier)));
     const round = await db.casinoRound.create({
       data: {

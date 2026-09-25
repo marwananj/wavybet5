@@ -138,6 +138,11 @@ model Event {
   liveUpdatedAt      DateTime?
   liveSuspendedUntil DateTime?
   liveBlocked        Boolean  @default(false)
+  /// half-time score and corner counts (for 1st-half and corners markets)
+  htHome         Int?
+  htAway         Int?
+  cornersHome    Int?
+  cornersAway    Int?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
   markets        Market[]
@@ -162,7 +167,7 @@ model Outcome {
   id        String   @id @default(cuid())
   marketId  String
   market    Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
-  /// home | away | draw | over | under | yes | no | home_draw | home_away | draw_away
+  /// home | away | draw | over_2.5 | under_2.5 | yes | no | home_draw | home_away | draw_away | cs_2_1 …
   code      String
   name      String
   price     Decimal  @db.Decimal(10, 2)
@@ -205,6 +210,8 @@ model BetSelection {
   point        Decimal?  @db.Decimal(8, 2)
   odds         Decimal   @db.Decimal(10, 2)
   status       BetStatus @default(OPEN)
+  /// settled early by the "2 goals ahead" early payout
+  early        Boolean   @default(false)
   eventLabel   String
   sportTitle   String
   commenceTime DateTime

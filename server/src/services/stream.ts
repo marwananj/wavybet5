@@ -45,6 +45,6 @@ export async function broadcastEvents(ids: string[]) {
   const unique = [...new Set(ids)];
   for (let i = 0; i < unique.length; i += 50) {
     const events = await prisma.event.findMany({ where: { id: { in: unique.slice(i, i + 50) } }, include: eventInclude });
-    if (events.length) send('events', { events: events.map(serializeEvent) });
+    if (events.length) send('events', { events: events.map((e) => serializeEvent(e, { lite: true })) });
   }
 }

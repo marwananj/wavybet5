@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { LuRadio } from 'react-icons/lu';
+import { onGoal } from '../lib/goals';
 import { Link } from '../lib/router';
 import { kickoff, leagueParts } from '../lib/format';
 import type { SportEvent } from '../lib/types';
@@ -69,11 +71,25 @@ export function FeaturedCard({ ev }: { ev: SportEvent }) {
 }
 
 /** Standard match card used in grids */
+/** flashes "GOAL" on a card for a few seconds when its match scores */
+function useGoalFlash(id: string) {
+  const [side, setSide] = useState<'home' | 'away' | null>(null);
+  useEffect(() => onGoal((g) => g.id === id && setSide(g.side)), [id]);
+  useEffect(() => {
+    if (!side) return;
+    const t = setTimeout(() => setSide(null), 7000);
+    return () => clearTimeout(t);
+  }, [side]);
+  return side;
+}
+
 export function EventCard({ ev }: { ev: SportEvent }) {
   const { groupTitle } = leagueParts(ev.sportKey, ev.sportTitle);
-  const extra = ev.markets.reduce((n, m) => n + m.outcomes.length, 0);
+  const extra = ev.marketCount ?? ev.markets.reduce((n, m) => n + m.outcomes.length, 0);
+  const goal = useGoalFlash(ev.id);
   return (
-    <Link to={`/event/${ev.id}`} className="ev-card">
+    <Link to={`/event/${ev.id}`} className={`ev-card${goal ? ' goal-flash' : ''}`}>
+      {goal && <span className={`goal-badge ${goal}`}>⚽ GOAL!</span>}
       <div className="ev-league">
         <SportIcon sportKey={ev.sportKey} size={13} />
         <span className="ellipsis">{ev.sportKey.startsWith('soccer_af_') ? ev.sportTitle : `${groupTitle} · ${ev.sportTitle}`}</span>
@@ -85,16 +101,17 @@ export function EventCard({ ev }: { ev: SportEvent }) {
         <div className="ev-team">
           <TeamBadge name={ev.homeTeam} logo={ev.homeLogo} size={20} />
           <span className="ellipsis">{ev.homeTeam}</span>
-          {ev.homeScore != null && ev.status === 'LIVE' && <b className="ev-score">{ev.homeScore}</b>}
+          {ev.homeScore != null && ev.status === 'LIVE' && <b className={`ev-score${goal === 'home' ? ' bump' : ''}`}>{ev.homeScore}</b>}
         </div>
         <div className="ev-team">
           <TeamBadge name={ev.awayTeam} logo={ev.awayLogo} size={20} />
           <span className="ellipsis">{ev.awayTeam}</span>
-          {ev.awayScore != null && ev.status === 'LIVE' && <b className="ev-score">{ev.awayScore}</b>}
+          {ev.awayScore != null && ev.status === 'LIVE' && <b className={`ev-score${goal === 'away' ? ' bump' : ''}`}>{ev.awayScore}</b>}
         </div>
       </div>
       <div className="ev-market-row">
         <span className="ev-market">1x2</span>
+        {ev.status === 'UPCOMING' && ev.sportKey.startsWith('soccer') && h2hOf(ev) && <span className="twoup mini" title="Early payout if your team goes 2 goals ahead">2UP</span>}
         {extra > 3 && <span className="ev-more">+{extra - 3}</span>}
       </div>
       {!h2hOf(ev) ? (

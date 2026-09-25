@@ -11,6 +11,7 @@ import { evaluateBets, settleEvent, voidEvent } from '../services/settlement';
 import { applyBalanceChange } from '../services/wallet';
 import { refundWithdrawal } from './wallet';
 import { publicUser } from './auth';
+import { invalidateMarkets, seenBetTypes } from '../services/markets';
 
 const r = Router();
 r.use(requireAuth, requireAdmin);
@@ -227,13 +228,32 @@ r.post(
   })
 );
 
+/** Every bet type the odds feeds have sent since the server started, and which market we map it to. */
+r.get(
+  '/feed-bet-types',
+  asyncH(async (_req, res) => {
+    const list = [...seenBetTypes.entries()].map(([k, v]) => ({ name: k.slice(k.indexOf(':') + 1), ...v })).sort((a, b) => b.count - a.count);
+    res.json({ types: list });
+  })
+);
+
 /** Manual result entry — for events the feed never finalises */
 r.post(
   '/events/:id/settle',
   asyncH(async (req, res) => {
-    const { homeScore, awayScore } = z.object({ homeScore: z.number().int().min(0), awayScore: z.number().int().min(0) }).parse(req.body);
-    await prisma.event.update({ where: { id: req.params.id }, data: { homeScore, awayScore, status: 'COMPLETED' } });
+    const b = z
+      .object({
+        homeScore: z.number().int().min(0),
+        awayScore: z.number().int().min(0),
+        htHome: z.number().int().min(0).optional(),
+        htAway: z.number().int().min(0).optional(),
+        cornersHome: z.number().int().min(0).optional(),
+        cornersAway: z.number().int().min(0).optional(),
+      })
+      .parse(req.body);
+    await prisma.event.update({ where: { id: req.params.id }, data: { ...b, status: 'COMPLETED' } });
     await prisma.market.updateMany({ where: { eventId: req.params.id }, data: { suspended: true } });
+    invalidateMarkets([req.params.id]);
     const settled = await settleEvent(req.params.id);
     res.json({ ok: true, settled });
   })
@@ -243,6 +263,7 @@ r.post(
   '/events/:id/void',
   asyncH(async (req, res) => {
     await prisma.market.updateMany({ where: { eventId: req.params.id }, data: { suspended: true } });
+    invalidateMarkets([req.params.id]);
     const settled = await voidEvent(req.params.id);
     res.json({ ok: true, settled });
   })

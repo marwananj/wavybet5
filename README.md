@@ -41,9 +41,21 @@ With `PAYMENT_MODE=manual` no payment provider is needed:
 
 Switch to automatic crypto processing later with `PAYMENT_MODE=nowpayments` and the NOWPayments keys.
 
+## Sportsbook markets
+
+Pre-match and in-play (API-Football), each only when the feed prices it:
+1X2 (with **2UP early payout**), Double chance, Total goals (several lines), Both teams to score,
+1st-half result, 1st-half goals, Correct score, Total corners, Most corners — plus **Bet Builder** (same-match combos, pre-match).
+
+- **Early payout (2UP):** pre-match 1X2 picks are settled as winners the moment the team goes 2 goals ahead (parlay legs are marked won). Not applied to Bet Builder.
+- **Bet Builder pricing:** a Poisson goals model fitted to the match's own 1X2 + goal-line prices (45/55 half split) and a corners model fitted to the corners line; the joint probability of all legs is summed exactly, price = (1 − `BUILDER_MARGIN`) ÷ P. Any void leg voids the builder.
+- **Settlement data:** half-time score and corner counts are stored on the event (from the fixtures feed / match statistics). Markets whose data never arrives are voided.
+- **Match tracker:** `/api/events/:id/tracker` — goals, cards, subs, VAR and live stats from `/fixtures?id=`, cached `TRACKER_CACHE_MS` per match. The pitch states are derived from that data: *Dangerous attack* = the team that had a shot or corner in the last ~90 s, *Attack* = clear possession edge, otherwise *Ball safe*.
+- **Admin → `/api/admin/feed-bet-types`** lists every bet name the odds feeds have sent and which market it maps to (useful if a bookmaker renames a market).
+
 ## Wavy Originals (casino)
 
-Eleven in-house games at `/casino`, all on the same wallet and ledger (`CASINO_BET` / `CASINO_WIN` transactions):
+Twelve in-house games at `/casino`, all on the same wallet and ledger (`CASINO_BET` / `CASINO_WIN` transactions):
 
 | Game | Rules | RTP |
 |---|---|---|
@@ -57,6 +69,7 @@ Eleven in-house games at `/casino`, all on the same wallet and ledger (`CASINO_B
 | Chicken Road | Cross lanes (Easy 24 … Expert 15), multiplier 0.99/(1−p)^lanes, cash out any time | 99% |
 | Wheel | 10–50 equal segments, Easy / Medium / Hard tables (Hard pays up to 49.5×) | 99% exactly |
 | Casino Hold'em | Ante vs dealer, flop then Fold or Call 2×; dealer qualifies with 4s; Ante pays 100/20/10/3/2/1; AA Bonus side bet (hole + flop, pair of Aces or better, 7:1 … 100:1) | Ante ≈97.8% with optimal play, AA Bonus 93.7% |
+| Wavy Horse Racing | Virtual 8-runner races (1200m) with a race card, live 3D-style race, spoken commentary. Win, Place (top 3), Forecast (exact 1-2) and Quinella (1-2 any order); every price is 0.97 ÷ true probability. The card comes from the public client seed + round number, the finishing order from the provably fair server seed (Plackett–Luce) | 97% |
 | Tower | 9 floors, pick one tile per floor (Easy 3 of 4 safe … Expert 1 of 3), multiplier 0.99/p^floors, cash out any time | 99% |
 
 RTPs were checked by simulating millions of rounds against the engine code in `server/src/casino/engine`. The Hold'em hand evaluator was verified against the exact counts of all 2,598,960 five-card hands, and the AA Bonus return was computed exactly (93.74%).

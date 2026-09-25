@@ -41,6 +41,12 @@ export interface SportEvent {
   liveMinute?: number | null;
   bettingOpen?: boolean;
   lockReason?: 'blocked' | 'goal' | 'waiting' | null;
+  /** total selections on the full book (lists only carry the 1X2) */
+  marketCount?: number;
+  htHome?: number | null;
+  htAway?: number | null;
+  cornersHome?: number | null;
+  cornersAway?: number | null;
   markets: Market[];
 }
 export interface Sport {
@@ -60,11 +66,13 @@ export interface BetSel {
   eventLabel: string;
   sportTitle: string;
   commenceTime: string;
+  /** paid early by the "2 goals ahead" rule */
+  early?: boolean;
 }
 export type BetStatus = 'OPEN' | 'WON' | 'LOST' | 'VOID';
 export interface Bet {
   id: string;
-  type: 'SINGLE' | 'PARLAY';
+  type: 'SINGLE' | 'PARLAY' | 'BUILDER';
   stake: string;
   totalOdds: string;
   potentialPayout: string;

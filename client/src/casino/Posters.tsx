@@ -262,6 +262,31 @@ function TowerArt() {
   );
 }
 
+function HorseArt() {
+  return (
+    <svg viewBox="0 0 200 200">
+      <Defs id="hr" />
+      <g filter="url(#hr-sh)">
+        <path d="M0 150 Q100 120 200 150 L200 200 L0 200Z" fill="rgba(0,0,0,.18)" />
+        <g transform="translate(18 44) scale(1.02)">
+          <path d="M38 54 C 46 40, 96 36, 114 44 C 126 49, 128 64, 118 72 C 102 81, 60 83, 44 76 C 33 71, 31 61, 38 54 Z" fill="#6b3d22" />
+          <path d="M106 50 C 114 36, 120 25, 131 18 L 142 25 C 136 34, 130 46, 122 62 Z" fill="#6b3d22" />
+          <path d="M129 16 C 135 10, 146 11, 156 22 C 161 28, 158 34, 151 34 C 144 33, 137 31, 132 30 Z" fill="#6b3d22" />
+          <path d="M110 44 C 116 32, 122 24, 131 17 L 128 24 C 122 30, 117 38, 113 48Z" fill="#1f130b" />
+          <path d="M40 56 C 26 54, 16 64, 10 84 C 20 78, 30 72, 42 66 Z" fill="#1f130b" />
+          <path d="M108 70 l14 22 l-4 18 M112 70 l-10 20 l10 18 M48 72 l-18 18 l-2 20 M52 72 l10 20 l-6 18" stroke="#6b3d22" strokeWidth="8" strokeLinecap="round" fill="none" />
+          <path d="M66 44 L 96 42 L 98 62 L 64 64 Z" fill="#e11d48" />
+          <text x="81" y="57" textAnchor="middle" fontSize="13" fontWeight="900" fill="#fff" fontFamily="Montserrat, sans-serif">1</text>
+          <path d="M70 22 C 76 14, 94 14, 102 22 L 100 34 C 92 38, 80 40, 72 38 Z" fill="#facc15" />
+          <path d="M70 26 H102 M72 32 H100" stroke="#2563eb" strokeWidth="4" />
+          <circle cx="104" cy="15" r="6.5" fill="#f1c9a5" />
+          <path d="M97 13 C 97 5, 112 5, 112 13 L 115 14 L 97 15Z" fill="#2563eb" />
+        </g>
+      </g>
+    </svg>
+  );
+}
+
 const ART: Record<string, () => JSX.Element> = {
   dice: DiceArt,
   roulette: RouletteArt,
@@ -273,6 +298,7 @@ const ART: Record<string, () => JSX.Element> = {
   rps: RpsArt,
   wheel: WheelArt,
   tower: TowerArt,
+  horses: HorseArt,
   holdem: () => <CardsArt id="he" cards={[['A', '♦', true], ['A', '♣', false], ['K', '♦', true]]} />,
 };
 

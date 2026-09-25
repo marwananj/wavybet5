@@ -25,6 +25,7 @@ import { ChickenGame } from './casino/games/Chicken';
 import { WheelGame } from './casino/games/Wheel';
 import { TowerGame } from './casino/games/Tower';
 import { HoldemGame } from './casino/games/Holdem';
+import { HorsesGame } from './casino/games/Horses';
 
 const CASINO: Record<string, () => JSX.Element> = {
   dice: DiceGame,
@@ -38,6 +39,7 @@ const CASINO: Record<string, () => JSX.Element> = {
   wheel: WheelGame,
   tower: TowerGame,
   holdem: HoldemGame,
+  horses: HorsesGame,
 };
 import { Empty } from './components/ui';
 import { Link } from './lib/router';

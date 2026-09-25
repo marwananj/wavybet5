@@ -163,6 +163,33 @@ export const sfx = {
     burst({ freq: 140, q: 0.4, dur: 1.4, vol: 0.8, type: 'lowpass', delay: 0.05, attack: 0.08 });
     tone({ freq: 70, to: 38, type: 'sine', dur: 1.1, vol: 0.35, delay: 0.05 });
   },
+  /** stadium goal: crowd roar swelling, air horn and the announcer */
+  goal: () => {
+    // roar
+    burst({ freq: 900, q: 0.5, dur: 3.2, vol: 0.55, type: 'bandpass', attack: 0.35 });
+    burst({ freq: 2200, q: 0.7, dur: 2.6, vol: 0.25, type: 'bandpass', attack: 0.3, delay: 0.1 });
+    // horn chord
+    [233, 293, 349].forEach((f, i) => tone({ freq: f, type: 'sawtooth', dur: 1.2, vol: 0.07, attack: 0.03, delay: 0.05 + i * 0.01 }));
+    [233, 293, 349].forEach((f) => tone({ freq: f, type: 'sawtooth', dur: 0.9, vol: 0.06, attack: 0.03, delay: 1.35 }));
+    // claps
+    for (let i = 0; i < 14; i++) burst({ freq: 2500 + Math.random() * 1500, q: 2, dur: 0.03, vol: 0.12, delay: 0.6 + i * 0.13 + Math.random() * 0.05 });
+    speak('Gooooooaaal!', { rate: 0.62, pitch: 1.25 });
+  },
+  whistle: () => {
+    tone({ freq: 2800, to: 2700, type: 'sine', dur: 0.35, vol: 0.12 });
+    tone({ freq: 2800, to: 2650, type: 'sine', dur: 0.7, vol: 0.12, delay: 0.45 });
+  },
+  /** starting bell */
+  bell: () => {
+    for (let i = 0; i < 6; i++) {
+      tone({ freq: 1568, type: 'square', dur: 0.08, vol: 0.07, delay: i * 0.1 });
+      tone({ freq: 2093, type: 'sine', dur: 0.12, vol: 0.08, delay: i * 0.1 + 0.01 });
+    }
+  },
+  gates: () => {
+    burst({ freq: 1600, q: 2, dur: 0.12, vol: 0.5 });
+    burst({ freq: 400, q: 1, dur: 0.25, vol: 0.4, type: 'lowpass', delay: 0.02 });
+  },
   pointer: () => burst({ freq: 5000, q: 8, dur: 0.02, vol: 0.18 }),
 };
 
@@ -215,6 +242,109 @@ export function rollLoop() {
   };
 }
 
+/**
+ * Race-day atmosphere: galloping hooves (scheduled thumps) + crowd (filtered noise).
+ * `set(gallop 0‥1, crowd 0‥1)` every frame; `stop()` at the end.
+ */
+export function raceAmbience() {
+  const c = ac();
+  if (!c || !master) return { set: (_g: number, _c: number) => {}, stop: () => {} };
+  const out = master;
+  // crowd
+  const src = c.createBufferSource();
+  src.buffer = noise(c);
+  src.loop = true;
+  const bp = c.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 900;
+  bp.Q.value = 0.5;
+  const cg = c.createGain();
+  cg.gain.value = 0.0001;
+  src.connect(bp);
+  bp.connect(cg);
+  cg.connect(out);
+  src.start();
+  // hooves
+  let gallop = 0;
+  let stopped = false;
+  let nextBeat = c.currentTime + 0.05;
+  const thump = (t: number, v: number) => {
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(95 + Math.random() * 30, t);
+    o.frequency.exponentialRampToValueAtTime(45, t + 0.08);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(v, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+    o.connect(g);
+    g.connect(out);
+    o.start(t);
+    o.stop(t + 0.12);
+    const n = c.createBufferSource();
+    n.buffer = noise(c);
+    const f = c.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 700;
+    const ng = c.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(v * 0.6, t + 0.003);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    n.connect(f);
+    f.connect(ng);
+    ng.connect(out);
+    n.start(t, Math.random());
+    n.stop(t + 0.07);
+  };
+  const timer = window.setInterval(() => {
+    if (stopped || gallop < 0.05) return;
+    const now = c.currentTime;
+    // 4-beat gallop pattern, many horses → slightly smeared
+    while (nextBeat < now + 0.25) {
+      const stride = 0.46 - gallop * 0.12;
+      [0, 0.07, 0.19, 0.26].forEach((o, i) => thump(nextBeat + o + Math.random() * 0.015, (0.07 + gallop * 0.1) * (i % 2 ? 0.8 : 1)));
+      nextBeat += stride;
+    }
+  }, 90);
+  return {
+    set(g: number, crowd: number) {
+      if (stopped) return;
+      gallop = Math.max(0, Math.min(1, g));
+      if (gallop > 0.05 && nextBeat < c.currentTime) nextBeat = c.currentTime + 0.02;
+      const t = c.currentTime;
+      cg.gain.setTargetAtTime(0.012 + Math.max(0, Math.min(1, crowd)) * 0.2, t, 0.3);
+      bp.frequency.setTargetAtTime(700 + crowd * 900, t, 0.3);
+    },
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(timer);
+      cg.gain.setTargetAtTime(0.0001, c.currentTime, 0.6);
+      src.stop(c.currentTime + 2.5);
+    },
+  };
+}
+
+export const isMuted = () => muted;
+
+/** Browser speech (commentary, goal call). Silent when muted or unsupported. */
+export function speak(text: string, o: { rate?: number; pitch?: number; interrupt?: boolean } = {}) {
+  const synth = typeof window !== 'undefined' ? window.speechSynthesis : undefined;
+  if (!synth || muted) return;
+  try {
+    if (o.interrupt !== false) synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    const voices = synth.getVoices();
+    const v = voices.find((x) => /en-GB/i.test(x.lang)) ?? voices.find((x) => /^en/i.test(x.lang));
+    if (v) u.voice = v;
+    u.rate = o.rate ?? 1;
+    u.pitch = o.pitch ?? 1;
+    synth.speak(u);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function setMuted(m: boolean) {
   muted = m;
   try {
@@ -223,6 +353,7 @@ export function setMuted(m: boolean) {
     /* private mode */
   }
   if (m && ctx) ctx.suspend().catch(() => {});
+  if (m && typeof window !== 'undefined') window.speechSynthesis?.cancel();
   listeners.forEach((l) => l(m));
 }
 

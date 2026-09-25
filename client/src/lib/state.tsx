@@ -143,7 +143,9 @@ export function SlipProvider({ children }: { children: ReactNode }) {
           if (o) found = { price: o.price, open: !!ev.bettingOpen && !m.suspended && !o.suspended };
         }
         const live = ev.status === 'LIVE';
-        if (!found || !found.open) return { ...p, unavailable: true, live };
+        // pushes carry only the 1X2 market; other picks are refreshed by the /outcomes poll below
+        if (!found) return ev.bettingOpen === false ? { ...p, unavailable: true, live } : { ...p, live };
+        if (!found.open) return { ...p, unavailable: true, live };
         return found.price !== p.odds ? { ...p, prevOdds: p.odds, odds: found.price, unavailable: false, live } : { ...p, unavailable: false, live };
       });
     });

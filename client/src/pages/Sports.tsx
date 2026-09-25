@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { LuRadio, LuSearch } from 'react-icons/lu';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { LuChevronDown, LuRadio, LuSearch, LuVolume2, LuVolumeX } from 'react-icons/lu';
 import { api } from '../lib/api';
 import { mergeEvents, useLiveUpdates } from '../lib/live';
 import { kickoff, leagueParts, dateTime } from '../lib/format';
@@ -8,6 +8,10 @@ import type { Sport, SportEvent } from '../lib/types';
 import { EventCard } from '../components/EventCard';
 import { BackBar } from '../components/Layout';
 import { Empty, OddsButton, Skeleton, SportIcon, TeamBadge } from '../components/ui';
+import { MatchTracker } from '../components/MatchTracker';
+import { BetBuilder } from '../components/BetBuilder';
+import { useMuted } from '../casino/sound';
+import { primeScore, watchEvent } from '../lib/goals';
 
 function useEvents(qs: string, every = 60_000, liveList = false) {
   const [events, setEvents] = useState<SportEvent[] | null>(null);
@@ -18,7 +22,10 @@ function useEvents(qs: string, every = 60_000, liveList = false) {
     let alive = true;
     const load = () =>
       api<{ events: SportEvent[] }>(`/events?${qs}`)
-        .then((d) => alive && setEvents(d.events))
+        .then((d) => {
+          d.events.forEach(primeScore);
+          if (alive) setEvents(d.events);
+        })
         .catch(() => alive && setEvents([]));
     load();
     const t = setInterval(load, every);
@@ -91,9 +98,18 @@ export function LivePage() {
   const raw = useEvents('status=live&limit=120', 20_000, true);
   // matches you can bet on first, score-only matches after
   const events = raw && [...raw].sort((a, b) => Number(b.markets.length > 0) - Number(a.markets.length > 0));
+  const [muted, setMuted] = useMuted();
   return (
     <div className="page">
       <BackBar title="Live" />
+      <div className="live-tools">
+        <span>
+          <i className="live-dot" /> {raw ? raw.length : 0} matches in play
+        </span>
+        <button type="button" className={`btn btn-ghost btn-sm ${muted ? 'off' : ''}`} onClick={() => setMuted(!muted)}>
+          {muted ? <LuVolumeX size={15} /> : <LuVolume2 size={15} />} Goal sounds {muted ? 'off' : 'on'}
+        </button>
+      </div>
       {events === null ? (
         <div className="grid-events">
           <Skeleton h={170} count={4} />
@@ -146,32 +162,123 @@ export function SearchPage() {
   );
 }
 
+type TabId = 'popular' | 'goals' | 'half' | 'corners' | 'score' | 'builder' | 'all';
+const TABS: { id: TabId; label: string; keys: string[] }[] = [
+  { id: 'popular', label: 'Popular', keys: ['h2h', 'double_chance', 'totals', 'btts'] },
+  { id: 'goals', label: 'Goals', keys: ['totals', 'btts'] },
+  { id: 'half', label: '1st Half', keys: ['ht_h2h', 'ht_totals'] },
+  { id: 'score', label: 'Correct Score', keys: ['correct_score'] },
+  { id: 'corners', label: 'Corners', keys: ['corners_totals', 'corners_h2h'] },
+  { id: 'builder', label: 'Bet Builder', keys: [] },
+  { id: 'all', label: 'All', keys: ['h2h', 'double_chance', 'totals', 'btts', 'ht_h2h', 'ht_totals', 'correct_score', 'corners_totals', 'corners_h2h'] },
+];
+
+function MarketBlock({ ev, m, title, badge }: { ev: SportEvent; m: SportEvent['markets'][number]; title: string; badge?: ReactNode }) {
+  const label = (code: string, name: string) =>
+    m.key === 'h2h' || m.key === 'ht_h2h' || m.key === 'corners_h2h' ? (code === 'home' ? `1 · ${name}` : code === 'away' ? `2 · ${name}` : 'X · Draw') : name;
+  const lines = m.outcomes.some((o) => o.point != null);
+  const [collapsed, setCollapsed] = useState(false);
+  let body: ReactNode;
+  if (m.key === 'correct_score') {
+    const cs = (o: (typeof m.outcomes)[number]) => o.code.match(/^cs_(\d+)_(\d+)$/);
+    const col = (f: (h: number, a: number) => boolean) =>
+      m.outcomes.filter((o) => {
+        const x = cs(o);
+        return x && f(Number(x[1]), Number(x[2]));
+      });
+    body = (
+      <div className="cs-grid">
+        {([
+          [ev.homeTeam, col((h, a) => h > a)],
+          ['Draw', col((h, a) => h === a)],
+          [ev.awayTeam, col((h, a) => h < a)],
+        ] as const).map(([t, list]) => (
+          <div key={t} className="cs-col">
+            <span className="cs-head ellipsis">{t}</span>
+            {list.map((o) => (
+              <OddsButton key={o.id} ev={ev} marketKey={m.key} o={o} label={o.name} locked={m.suspended} />
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  } else if (lines) {
+    const pts = [...new Set(m.outcomes.map((o) => o.point))];
+    body = (
+      <div className="line-table">
+        {pts.map((p) => (
+          <div key={String(p)} className="odds-row two">
+            {m.outcomes
+              .filter((o) => o.point === p)
+              .map((o) => (
+                <OddsButton key={o.id} ev={ev} marketKey={m.key} o={o} label={o.name} locked={m.suspended} />
+              ))}
+          </div>
+        ))}
+      </div>
+    );
+  } else {
+    body = (
+      <div className={`odds-row${m.outcomes.length === 2 ? ' two' : ''}`}>
+        {m.outcomes.map((o) => (
+          <OddsButton key={o.id} ev={ev} marketKey={m.key} o={o} label={label(o.code, o.name)} locked={m.suspended} />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <section className={`market ${collapsed ? 'collapsed' : ''}`}>
+      <h3 onClick={() => setCollapsed((c) => !c)}>
+        <span>{title}</span>
+        {badge}
+        <LuChevronDown size={16} className="mk-chev" />
+      </h3>
+      {!collapsed && body}
+    </section>
+  );
+}
+
 export function EventPage({ id }: { id: string }) {
   const [ev, setEv] = useState<SportEvent | null | undefined>(undefined);
-  useEffect(() => {
-    let alive = true;
-    const load = () =>
+  const [tab, setTab] = useState<TabId>('popular');
+  const [muted, setMuted] = useMuted();
+  const refetchAt = useRef(0);
+  const refetch = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const load = useCallback(
+    () =>
       api<{ event: SportEvent }>(`/events/${id}`)
-        .then((d) => alive && setEv(d.event))
-        .catch(() => alive && setEv(null));
+        .then((d) => {
+          primeScore(d.event);
+          setEv(d.event);
+        })
+        .catch(() => setEv((x) => (x === undefined ? null : x))),
+    [id]
+  );
+  useEffect(() => {
+    setEv(undefined);
     load();
-    return () => {
-      alive = false;
-    };
-  }, [id]);
-  // instant pushes for this match
+    return watchEvent(id);
+  }, [id, load]);
+  // instant pushes carry the score/lock state + 1X2; pull the full book right after (throttled)
   useLiveUpdates((incoming) => {
     const mine = incoming.find((e) => e.id === id);
-    if (mine) setEv(mine);
+    if (!mine) return;
+    setEv((cur) => (cur ? { ...cur, ...mine, markets: cur.markets.map((m) => (m.key === 'h2h' ? mine.markets.find((x) => x.key === 'h2h') ?? m : { ...m, suspended: m.suspended || mine.bettingOpen === false })) } : cur));
+    if (refetch.current) return;
+    const wait = Math.max(300, 2500 - (Date.now() - refetchAt.current));
+    refetch.current = setTimeout(() => {
+      refetch.current = null;
+      refetchAt.current = Date.now();
+      load();
+    }, wait);
   });
+  useEffect(() => () => void (refetch.current && clearTimeout(refetch.current)), []);
   // safety-net refresh
   const isLive = ev?.status === 'LIVE';
   useEffect(() => {
-    const t = setInterval(() => {
-      api<{ event: SportEvent }>(`/events/${id}`).then((d) => setEv(d.event)).catch(() => {});
-    }, isLive ? 15_000 : 30_000);
+    const t = setInterval(load, isLive ? 15_000 : 30_000);
     return () => clearInterval(t);
-  }, [id, isLive]);
+  }, [load, isLive]);
 
   if (ev === undefined)
     return (
@@ -190,16 +297,26 @@ export function EventPage({ id }: { id: string }) {
   const { groupTitle } = leagueParts(ev.sportKey, ev.sportTitle);
   const open = ev.status === 'UPCOMING' || ev.status === 'LIVE';
   const isSoccer = ev.sportKey.startsWith('soccer');
-  const ORDER = ['h2h', 'double_chance', 'totals', 'btts'];
-  const markets = [...ev.markets].sort((a, b) => (ORDER.indexOf(a.key) + 99) % 99 - (ORDER.indexOf(b.key) + 99) % 99);
+  const has = (k: string) => ev.markets.some((m) => m.key === k);
+  const tabs = TABS.filter((t) => (t.id === 'builder' ? ev.status === 'UPCOMING' && has('h2h') && isSoccer : t.keys.some(has)));
+  const active = tabs.find((t) => t.id === tab) ?? tabs[0];
   const title = (key: string, point?: number | null) =>
     key === 'h2h' ? (isSoccer ? 'Full time result (1X2)' : 'Match winner')
-    : key === 'totals' ? `Total ${isSoccer ? 'goals' : 'points'} — ${point ?? ''}`
+    : key === 'totals' ? `Total ${isSoccer ? 'goals' : 'points'}`
     : key === 'btts' ? 'Both teams to score'
     : key === 'double_chance' ? 'Double chance'
-    : key;
-  const label = (key: string, code: string, name: string) =>
-    key === 'h2h' ? (code === 'home' ? `1 · ${name}` : code === 'away' ? `2 · ${name}` : 'X · Draw') : name;
+    : key === 'ht_h2h' ? '1st half result'
+    : key === 'ht_totals' ? '1st half goals'
+    : key === 'correct_score' ? 'Correct score'
+    : key === 'corners_totals' ? 'Total corners'
+    : key === 'corners_h2h' ? 'Most corners (1X2)'
+    : `${key}${point != null ? ` ${point}` : ''}`;
+  const shown = active && active.id !== 'builder' ? active.keys.map((k) => ev.markets.find((m) => m.key === k)).filter((m): m is SportEvent['markets'][number] => !!m) : [];
+  const twoUp = isSoccer && ev.status === 'UPCOMING' && (
+    <span className="twoup" title="Pre-match 1X2 bets are paid out as winners as soon as your team goes 2 goals ahead">
+      2UP · Early payout
+    </span>
+  );
 
   return (
     <div className="page">
@@ -207,6 +324,9 @@ export function EventPage({ id }: { id: string }) {
       <section className="match-hero">
         <div className="match-league">
           <SportIcon sportKey={ev.sportKey} size={15} /> {groupTitle} · {ev.sportTitle}
+          <button type="button" className={`icon-btn sound-btn sm ${muted ? 'off' : ''}`} onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute goal sounds' : 'Mute goal sounds'}>
+            {muted ? <LuVolumeX size={16} /> : <LuVolume2 size={16} />}
+          </button>
         </div>
         <div className="match-teams">
           <div className="match-team">
@@ -223,6 +343,12 @@ export function EventPage({ id }: { id: string }) {
                 <span className={ev.status === 'LIVE' ? 'live-pill' : 'ft-pill'}>
                   {ev.status === 'LIVE' ? (ev.liveMinute != null ? `Live ${ev.liveMinute}'` : 'Live') : 'Full time'}
                 </span>
+                {ev.htHome != null && ev.htAway != null && (
+                  <small className="ht-score">
+                    HT {ev.htHome}-{ev.htAway}
+                    {ev.cornersHome != null ? ` · Corners ${ev.cornersHome}-${ev.cornersAway}` : ''}
+                  </small>
+                )}
               </>
             ) : (
               <>
@@ -239,6 +365,8 @@ export function EventPage({ id }: { id: string }) {
         </div>
       </section>
 
+      {isSoccer && ev.id.startsWith('af_') && <MatchTracker ev={ev} />}
+
       {!open && <div className="notice">Betting is closed for this match. Open bets settle automatically when the final result is in.</div>}
       {ev.status === 'LIVE' && ev.lockReason && ev.markets.length > 0 && (
         <div className={`live-banner lb-${ev.lockReason}`}>
@@ -246,18 +374,19 @@ export function EventPage({ id }: { id: string }) {
         </div>
       )}
 
+      {open && tabs.length > 0 && (
+        <div className="mk-tabs" role="tablist">
+          {tabs.map((t) => (
+            <button key={t.id} type="button" role="tab" className={active?.id === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {open && active?.id === 'builder' && <BetBuilder ev={ev} />}
       {open &&
-        markets.map((m) => (
-          <section key={m.id} className="market">
-            <h3>{title(m.key, m.outcomes[0]?.point)}</h3>
-            <div className={`odds-row${m.outcomes.length === 2 ? ' two' : ''}`}>
-              {m.outcomes.map((o) => (
-                <OddsButton key={o.id} ev={ev} marketKey={m.key} o={o} label={label(m.key, o.code, o.name)} locked={m.suspended} />
-              ))}
-            </div>
-          </section>
-        ))}
-      {open && markets.length === 0 && (ev.status === 'LIVE'
+        shown.map((m) => <MarketBlock key={m.id} ev={ev} m={m} title={title(m.key)} badge={m.key === 'h2h' ? twoUp : undefined} />)}
+      {open && ev.markets.length === 0 && (ev.status === 'LIVE'
         ? <Empty title="No in-play betting for this match" text="Our data provider doesn't offer live odds for this match. The live score keeps updating here." />
         : <Empty title="Odds open soon" text="Bookmakers publish prices about two weeks before kick-off. This page updates automatically." />)}
     </div>

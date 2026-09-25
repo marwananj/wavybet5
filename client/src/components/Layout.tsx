@@ -3,7 +3,8 @@ import { LuHouse, LuRadio, LuTicket, LuWallet, LuSearch, LuUser, LuLogOut, LuShi
 import { api } from '../lib/api';
 import { usd } from '../lib/format';
 import { Link, useRouter } from '../lib/router';
-import { useAuth, useSlip } from '../lib/state';
+import { useAuth, useSlip, useToast } from '../lib/state';
+import { useGoalAlerts } from '../lib/goals';
 import type { Sport } from '../lib/types';
 import { Logo, SportIcon } from './ui';
 import { LuDices } from 'react-icons/lu';
@@ -21,6 +22,8 @@ export function Header({ onMenu }: { onMenu: () => void }) {
   const { user, openAuth, logout } = useAuth();
   const { navigate } = useRouter();
   const [menu, setMenu] = useState(false);
+  const toast = useToast();
+  useGoalAlerts(toast, !!user); // "GOAL!" sound + toast for matches you follow
   useEffect(() => {
     if (!menu) return;
     const c = () => setMenu(false);

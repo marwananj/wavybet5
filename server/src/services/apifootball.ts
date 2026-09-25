@@ -1,6 +1,7 @@
 import { config } from '../config';
 import { D, prisma } from '../lib/prisma';
-import { settleEvent, voidEvent } from './settlement';
+import { applyEarlyPayout, settleEvent, voidEvent } from './settlement';
+import { classifyBet, dcCode, forgetEvent, invalidateMarkets, noteBetType, parseLine, parseScore, saveMarket, side3, type MarketKey, type OutcomeIn } from './markets';
 
 /**
  * API-Football (api-sports.io) feed: leagues, fixtures, pre-match odds and results.
@@ -23,7 +24,21 @@ interface AfFixture {
   league: { id: number; name: string; country: string; season: number; round?: string };
   teams: { home: { id: number; name: string; logo: string }; away: { id: number; name: string; logo: string } };
   goals: { home: number | null; away: number | null };
-  score: { fulltime: { home: number | null; away: number | null } };
+  score: { halftime?: { home: number | null; away: number | null }; fulltime: { home: number | null; away: number | null } };
+  statistics?: { team: { id: number }; statistics: { type: string; value: number | string | null }[] }[];
+}
+
+/** corner kicks from a fixture's statistics block (only present on /fixtures?id|ids) */
+export function cornersOf(f: AfFixture): [number, number] | null {
+  const st = f.statistics;
+  if (!st || st.length < 2) return null;
+  const get = (teamId: number) => {
+    const t = st.find((x) => x.team.id === teamId);
+    const v = t?.statistics.find((x) => x.type.toLowerCase() === 'corner kicks')?.value;
+    return v == null ? null : Number(v);
+  };
+  const h = get(f.teams.home.id), a = get(f.teams.away.id);
+  return h == null || a == null || !Number.isFinite(h) || !Number.isFinite(a) ? null : [h, a];
 }
 interface AfOdds {
   fixture: { id: number };
@@ -151,94 +166,103 @@ const median = (xs: number[]) => {
 };
 const price = (xs: number[]) => Math.max(1.01, Math.round(median(xs) * (1 - config.houseMargin) * 100) / 100);
 
-type BuiltMarket = { key: string; outcomes: { code: string; name: string; price: number; point?: number }[] };
+type BuiltMarket = { key: MarketKey; outcomes: OutcomeIn[] };
 
 function buildMarkets(odds: AfOdds, home: string, away: string): BuiltMarket[] {
-  // bet name -> value label -> prices across bookmakers
-  const pool: Record<string, Record<string, number[]>> = {};
+  // market -> value label -> prices across bookmakers
+  const pool: Partial<Record<MarketKey, Record<string, number[]>>> = {};
   for (const b of odds.bookmakers) {
     for (const bet of b.bets) {
-      const name = bet.name.toLowerCase();
+      noteBetType('prematch', bet.name, bet.values.slice(0, 4).map((v) => v.value).join(', '));
+      const key = classifyBet(bet.name);
+      if (!key) continue;
       for (const v of bet.values) {
         const p = parseFloat(v.odd);
         if (!Number.isFinite(p) || p <= 1) continue;
-        ((pool[name] ??= {})[String(v.value)] ??= []).push(p);
+        ((pool[key] ??= {})[String(v.value).trim()] ??= []).push(p);
       }
     }
   }
   const out: BuiltMarket[] = [];
-
-  const mw = pool['match winner'];
-  if (mw?.Home && mw?.Away) {
+  const three = (key: MarketKey, homeName = home, awayName = away) => {
+    const m = pool[key];
+    if (!m) return;
+    const got: Partial<Record<'home' | 'draw' | 'away', number[]>> = {};
+    for (const [label, prices] of Object.entries(m)) {
+      const s3 = side3(label);
+      if (s3) got[s3] = [...(got[s3] ?? []), ...prices];
+    }
+    if (!got.home || !got.away) return;
     out.push({
-      key: 'h2h',
+      key,
       outcomes: [
-        { code: 'home', name: home, price: price(mw.Home) },
-        ...(mw.Draw ? [{ code: 'draw', name: 'Draw', price: price(mw.Draw) }] : []),
-        { code: 'away', name: away, price: price(mw.Away) },
+        { code: 'home', name: homeName, price: price(got.home) },
+        ...(got.draw ? [{ code: 'draw', name: 'Draw', price: price(got.draw) }] : []),
+        { code: 'away', name: awayName, price: price(got.away) },
       ],
     });
-  }
-
-  const ou = pool['goals over/under'];
-  if (ou) {
-    const lines = new Map<number, { over?: number[]; under?: number[] }>();
-    for (const [label, prices] of Object.entries(ou)) {
-      const m = label.match(/^(Over|Under)\s+([\d.]+)$/i);
-      if (!m) continue;
-      const line = Number(m[2]);
-      if (!Number.isInteger(line * 2)) continue; // skip quarter (Asian) lines
-      const slot = lines.get(line) ?? {};
-      if (m[1].toLowerCase() === 'over') slot.over = prices;
-      else slot.under = prices;
-      lines.set(line, slot);
+  };
+  const lines = (key: MarketKey, max: number, halfOnly: boolean) => {
+    const m = pool[key];
+    if (!m) return;
+    const by = new Map<number, { over?: number[]; under?: number[] }>();
+    for (const [label, prices] of Object.entries(m)) {
+      const l = parseLine(label);
+      if (!l) continue;
+      if (!Number.isInteger(l.line * 2)) continue; // quarter (Asian) lines need split settlement
+      if (halfOnly && Number.isInteger(l.line)) continue;
+      const slot = by.get(l.line) ?? {};
+      slot[l.side] = prices;
+      by.set(l.line, slot);
     }
-    const valid = [...lines.entries()].filter(([, v]) => v.over?.length && v.under?.length);
-    const main = valid.find(([l]) => l === 2.5) ?? valid.sort((a, b) => b[1].over!.length - a[1].over!.length)[0];
-    if (main) {
-      const [line, v] = main;
-      out.push({
-        key: 'totals',
-        outcomes: [
-          { code: 'over', name: `Over ${line}`, price: price(v.over!), point: line },
-          { code: 'under', name: `Under ${line}`, price: price(v.under!), point: line },
-        ],
-      });
+    const valid = [...by.entries()].filter(([, v]) => v.over?.length && v.under?.length).sort((a, b) => a[0] - b[0]);
+    if (!valid.length) return;
+    // keep the lines closest to an even book
+    const chosen = [...valid]
+      .sort((a, b) => Math.abs(median(a[1].over!) - median(a[1].under!)) - Math.abs(median(b[1].over!) - median(b[1].under!)))
+      .slice(0, max)
+      .sort((a, b) => a[0] - b[0]);
+    const outcomes: OutcomeIn[] = [];
+    for (const [line, v] of chosen) {
+      outcomes.push({ code: `over_${line}`, name: `Over ${line}`, price: price(v.over!), point: line });
+      outcomes.push({ code: `under_${line}`, name: `Under ${line}`, price: price(v.under!), point: line });
     }
-  }
+    out.push({ key, outcomes });
+  };
 
-  const bt = pool['both teams score'];
-  if (bt?.Yes && bt?.No) {
-    out.push({ key: 'btts', outcomes: [ { code: 'yes', name: 'Yes', price: price(bt.Yes) }, { code: 'no', name: 'No', price: price(bt.No) } ] });
+  three('h2h');
+  const dc = pool.double_chance;
+  if (dc) {
+    const names = { home_draw: `${home} or Draw`, home_away: `${home} or ${away}`, draw_away: `Draw or ${away}` } as const;
+    const o: OutcomeIn[] = [];
+    for (const [label, prices] of Object.entries(dc)) {
+      const c = dcCode(label);
+      if (c && !o.some((x) => x.code === c)) o.push({ code: c, name: names[c], price: price(prices) });
+    }
+    if (o.length >= 2) out.push({ key: 'double_chance', outcomes: o });
   }
-
-  const dc = pool['double chance'];
-  if (dc && (dc['Home/Draw'] || dc['Home/Away'] || dc['Draw/Away'])) {
-    const o: BuiltMarket['outcomes'] = [];
-    if (dc['Home/Draw']) o.push({ code: 'home_draw', name: `${home} or Draw`, price: price(dc['Home/Draw']) });
-    if (dc['Home/Away']) o.push({ code: 'home_away', name: `${home} or ${away}`, price: price(dc['Home/Away']) });
-    if (dc['Draw/Away']) o.push({ code: 'draw_away', name: `Draw or ${away}`, price: price(dc['Draw/Away']) });
-    out.push({ key: 'double_chance', outcomes: o });
+  lines('totals', 6, false);
+  const bt = pool.btts;
+  if (bt?.Yes && bt?.No) out.push({ key: 'btts', outcomes: [{ code: 'yes', name: 'Yes', price: price(bt.Yes) }, { code: 'no', name: 'No', price: price(bt.No) }] });
+  three('ht_h2h');
+  lines('ht_totals', 3, false);
+  const cs = pool.correct_score;
+  if (cs) {
+    const o: OutcomeIn[] = [];
+    for (const [label, prices] of Object.entries(cs)) {
+      const sc = parseScore(label);
+      if (!sc || sc[0] > 6 || sc[1] > 6) continue;
+      o.push({ code: `cs_${sc[0]}_${sc[1]}`, name: `${sc[0]}-${sc[1]}`, price: price(prices) });
+    }
+    if (o.length >= 6) out.push({ key: 'correct_score', outcomes: o });
   }
+  lines('corners_totals', 4, true);
+  three('corners_h2h');
   return out;
 }
 
 async function saveMarkets(evId: string, markets: BuiltMarket[]) {
-  for (const m of markets) {
-    const market = await prisma.market.upsert({
-      where: { eventId_key: { eventId: evId, key: m.key } },
-      create: { eventId: evId, key: m.key },
-      update: { suspended: false },
-    });
-    for (const o of m.outcomes) {
-      await prisma.outcome.upsert({
-        where: { marketId_code: { marketId: market.id, code: o.code } },
-        create: { marketId: market.id, code: o.code, name: o.name, price: D(o.price), point: o.point != null ? D(o.point) : null },
-        update: { name: o.name, price: D(o.price), point: o.point != null ? D(o.point) : null, active: true },
-      });
-    }
-    await prisma.outcome.updateMany({ where: { marketId: market.id, code: { notIn: m.outcomes.map((o) => o.code) } }, data: { active: false } });
-  }
+  for (const m of markets) await saveMarket(evId, m.key, m.outcomes, false);
 }
 
 /** "UEFA Nations League · League A" etc. from the fixture's round ("League A - 3"). */
@@ -323,6 +347,7 @@ export async function afSyncScores() {
   await prisma.event.updateMany({ where: { id: { startsWith: 'af_' }, status: 'UPCOMING', commenceTime: { lte: now } }, data: { status: 'LIVE' } });
   // pre-match prices lock at kick-off until live prices arrive (the live engine owns them after that)
   await prisma.market.updateMany({ where: { event: { status: 'LIVE', liveUpdatedAt: null }, suspended: false }, data: { suspended: true } });
+  invalidateMarkets();
 
   // 1 request: everything currently in play in our leagues
   const sports = await prisma.sport.findMany({ where: { provider: 'apifootball', enabled: true } });
@@ -360,8 +385,17 @@ export async function afSyncScores() {
         const hs = f.score.fulltime.home ?? f.goals.home;
         const as = f.score.fulltime.away ?? f.goals.away;
         if (hs == null || as == null) continue;
-        await prisma.event.update({ where: { id }, data: { status: 'COMPLETED', homeScore: hs, awayScore: as, lastScoreSync: now } });
+        const corners = cornersOf(f);
+        await prisma.event.update({
+          where: { id },
+          data: {
+            status: 'COMPLETED', homeScore: hs, awayScore: as, lastScoreSync: now,
+            htHome: f.score.halftime?.home ?? null, htAway: f.score.halftime?.away ?? null,
+            ...(corners ? { cornersHome: corners[0], cornersAway: corners[1] } : {}),
+          },
+        });
         settled += await settleEvent(id);
+        forgetEvent(id);
       } else if (DEAD.has(st)) {
         settled += await voidEvent(id);
       } else if (st === 'PST' || st === 'TBD' || st === 'NS') {
@@ -370,10 +404,22 @@ export async function afSyncScores() {
           // rescheduled: reopen as upcoming with the new time
           await prisma.event.update({ where: { id }, data: { status: 'UPCOMING', commenceTime: kickoff, lastScoreSync: now } });
           await prisma.market.updateMany({ where: { eventId: id }, data: { suspended: false } });
+          invalidateMarkets([id]);
         } else if (st === 'PST' && now.getTime() - kickoff.getTime() > 48 * 3600_000) {
           settled += await voidEvent(id); // postponed with no new date for 48h
         }
       } else {
+        const corners = cornersOf(f);
+        const ht = f.score.halftime;
+        if (corners || (ht && ht.home != null)) {
+          await prisma.event.update({
+            where: { id },
+            data: {
+              ...(corners ? { cornersHome: corners[0], cornersAway: corners[1] } : {}),
+              ...(ht && ht.home != null && st !== '1H' ? { htHome: ht.home, htAway: ht.away } : {}),
+            },
+          });
+        }
         // while live odds are flowing, the live engine owns the score (it needs it for goal detection)
         const ev = await prisma.event.findUnique({ where: { id }, select: { lastScoreSync: true } });
         const liveJobFresh = config.liveBetting && ev?.lastScoreSync && now.getTime() - ev.lastScoreSync.getTime() < 60_000;
@@ -382,6 +428,7 @@ export async function afSyncScores() {
             where: { id },
             data: { homeScore: f.goals.home, awayScore: f.goals.away, liveElapsed: f.fixture.status.elapsed, lastScoreSync: now },
           });
+          if (f.goals.home != null && f.goals.away != null) settled += await applyEarlyPayout(id, f.goals.home, f.goals.away);
         }
       }
     }

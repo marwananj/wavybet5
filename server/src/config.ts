@@ -66,6 +66,10 @@ export const config = {
   liveBetDelayMs: num('LIVE_BET_DELAY_MS', 5000),
   liveCutoffMinute: num('LIVE_CUTOFF_MINUTE', 89),
   liveMargin: num('LIVE_MARGIN', 0.06),
+  /** Bet Builder margin on top of the modelled probability */
+  builderMargin: num('BUILDER_MARGIN', 0.12),
+  /** match tracker cache (ms) — one API call per watched live match per interval */
+  trackerCacheMs: num('TRACKER_CACHE_MS', 15000),
 
   // The Odds API
   oddsApiKey: process.env.ODDS_API_KEY ?? '',

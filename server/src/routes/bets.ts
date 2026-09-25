@@ -7,6 +7,7 @@ import { D, money, Prisma, prisma } from '../lib/prisma';
 import { requireAuth } from '../middleware/auth';
 import { applyBalanceChange } from '../services/wallet';
 import { outcomeOpen } from '../services/live';
+import { BuilderError, priceBuilder, type Book } from '../services/builder';
 
 const r = Router();
 const betLimiter = rateLimit({ windowMs: 60_000, limit: 40 });
@@ -86,7 +87,7 @@ r.post(
     if (body.mode === 'parlay') {
       if (legs.length < 2) throw new HttpError(400, 'A parlay needs at least 2 selections');
       if (new Set(legs.map((l) => l.market.eventId)).size !== legs.length)
-        throw new HttpError(400, 'Selections from the same match cannot be combined');
+        throw new HttpError(400, 'Selections from the same match cannot go in a parlay — use Bet Builder on the match page');
       if (!body.stake) throw new HttpError(400, 'Enter a stake');
       const odds = legs.reduce((acc, l) => acc.mul(l.price), D(1)).toDecimalPlaces(2);
       planned.push({ type: 'PARLAY', stake: money(body.stake), odds, legs });
@@ -127,17 +128,101 @@ r.post(
   })
 );
 
+/* ───────────────────────────── Bet Builder ───────────────────────────── */
+
+const builderSchema = z.object({ eventId: z.string(), outcomeIds: z.array(z.string()).min(2).max(8) });
+
+async function quoteBuilder(eventId: string, outcomeIds: string[]) {
+  if (new Set(outcomeIds).size !== outcomeIds.length) throw new HttpError(400, 'Duplicate selection');
+  const ev = await prisma.event.findUnique({ where: { id: eventId }, include: { markets: { include: { outcomes: { where: { active: true } } } } } });
+  if (!ev) throw new HttpError(404, 'Match not found');
+  if (ev.status !== 'UPCOMING' || ev.commenceTime <= new Date()) throw new HttpError(400, 'Bet Builder is available before kick-off only');
+  const book: Book = {};
+  const all = new Map<string, { o: (typeof ev.markets)[number]['outcomes'][number]; m: (typeof ev.markets)[number] }>();
+  for (const m of ev.markets) {
+    book[m.key] = m.outcomes.map((o) => ({ code: o.code, price: Number(o.price), point: o.point == null ? null : Number(o.point) }));
+    for (const o of m.outcomes) all.set(o.id, { o, m });
+  }
+  const legs = outcomeIds.map((id) => {
+    const x = all.get(id);
+    if (!x) throw new HttpError(409, 'A selection is no longer available', 'ODDS_CHANGED');
+    if (x.m.suspended || x.o.suspended) throw new HttpError(409, 'A selection is suspended', 'ODDS_CHANGED');
+    return x;
+  });
+  try {
+    const q = priceBuilder(
+      book,
+      legs.map((l) => ({ marketKey: l.m.key, code: l.o.code, point: l.o.point == null ? null : Number(l.o.point) })),
+      legs.map((l) => Number(l.o.price))
+    );
+    return { ev, legs, ...q };
+  } catch (e) {
+    if (e instanceof BuilderError) throw new HttpError(400, e.message, 'BUILDER');
+    throw e;
+  }
+}
+
+r.post(
+  '/builder/quote',
+  asyncH(async (req, res) => {
+    const b = builderSchema.parse(req.body);
+    const q = await quoteBuilder(b.eventId, b.outcomeIds);
+    res.json({ price: q.price });
+  })
+);
+
+r.post(
+  '/builder',
+  requireAuth,
+  betLimiter,
+  asyncH(async (req, res) => {
+    const b = builderSchema.extend({ stake: z.number().positive(), odds: z.number().positive() }).parse(req.body);
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+    if (user.selfExcludedUntil && user.selfExcludedUntil > new Date()) throw new HttpError(403, 'You are self-excluded');
+    const q = await quoteBuilder(b.eventId, b.outcomeIds);
+    if (q.price < b.odds) throw new HttpError(409, 'The Bet Builder price changed', 'ODDS_CHANGED', [{ outcomeId: 'builder', odds: q.price }]);
+    const stake = money(b.stake);
+    const odds = D(q.price);
+    if (stake.lt(config.minStake)) throw new HttpError(400, `Minimum stake is $${config.minStake}`);
+    if (stake.gt(config.maxStake)) throw new HttpError(400, `Maximum stake is $${config.maxStake}`);
+    if (stake.mul(odds).gt(config.maxPayout)) throw new HttpError(400, `Maximum payout is $${config.maxPayout}`);
+    const label = `${q.ev.homeTeam} vs ${q.ev.awayTeam}`;
+    const bet = await prisma.$transaction(async (db) => {
+      const created = await db.bet.create({
+        data: {
+          userId: user.id,
+          type: 'BUILDER',
+          stake,
+          totalOdds: odds,
+          potentialPayout: money(stake.mul(odds)),
+          selections: {
+            create: q.legs.map(({ o, m }) => ({
+              eventId: q.ev.id, outcomeId: o.id, marketKey: m.key, outcomeCode: o.code, outcomeName: o.name, point: o.point, odds: o.price,
+              eventLabel: label, sportTitle: q.ev.sportTitle, commenceTime: q.ev.commenceTime,
+            })),
+          },
+        },
+        include: { selections: true },
+      });
+      await applyBalanceChange(db, { userId: user.id, amount: stake.negated(), type: 'BET_STAKE', betId: created.id, note: `Bet Builder (${q.legs.length} legs) @ ${odds}` });
+      return created;
+    });
+    const balance = (await prisma.user.findUniqueOrThrow({ where: { id: user.id }, select: { balance: true } })).balance;
+    res.status(201).json({ bets: [serializeBet(bet)], balance: String(balance) });
+  })
+);
+
 function serializeBet(b: {
   id: string; type: string; stake: unknown; totalOdds: unknown; potentialPayout: unknown; payout: unknown; status: string;
   createdAt: Date; settledAt: Date | null;
-  selections: { id: string; eventId: string; marketKey: string; outcomeName: string; odds: unknown; status: string; eventLabel: string; sportTitle: string; commenceTime: Date }[];
+  selections: { id: string; eventId: string; marketKey: string; outcomeName: string; odds: unknown; status: string; eventLabel: string; sportTitle: string; commenceTime: Date; early?: boolean; point?: unknown }[];
 }) {
   return {
     id: b.id, type: b.type, stake: String(b.stake), totalOdds: String(b.totalOdds), potentialPayout: String(b.potentialPayout),
     payout: b.payout == null ? null : String(b.payout), status: b.status, createdAt: b.createdAt, settledAt: b.settledAt,
     selections: b.selections.map((s) => ({
       id: s.id, eventId: s.eventId, marketKey: s.marketKey, outcomeName: s.outcomeName, odds: String(s.odds), status: s.status,
-      eventLabel: s.eventLabel, sportTitle: s.sportTitle, commenceTime: s.commenceTime,
+      eventLabel: s.eventLabel, sportTitle: s.sportTitle, commenceTime: s.commenceTime, early: !!s.early,
     })),
   };
 }

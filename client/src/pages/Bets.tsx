@@ -23,7 +23,7 @@ function BetCard({ b }: { b: Bet }) {
     <article className={`bet-card st-${b.status.toLowerCase()}`}>
       <header className="bet-head">
         <div>
-          <b>{b.type === 'PARLAY' ? `${b.selections.length}-leg parlay` : 'Single'}</b>
+          <b>{b.type === 'PARLAY' ? `${b.selections.length}-leg parlay` : b.type === 'BUILDER' ? `Bet Builder · ${b.selections.length} legs` : 'Single'}</b>
           <small>
             {dateTime(b.createdAt)} · #{b.id.slice(-8).toUpperCase()}
           </small>
@@ -35,7 +35,10 @@ function BetCard({ b }: { b: Bet }) {
           <li key={s.id} className={`leg st-${s.status.toLowerCase()}`}>
             <span className="leg-dot" />
             <div className="leg-info">
-              <b>{s.outcomeName}</b>
+              <b>
+                {s.outcomeName}
+                {s.early && <em className="early-tag">Early payout · 2 goals ahead</em>}
+              </b>
               <Link to={`/event/${s.eventId}`} className="ellipsis">
                 {s.eventLabel}
               </Link>

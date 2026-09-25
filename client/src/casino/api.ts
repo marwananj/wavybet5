@@ -49,6 +49,7 @@ export const casino = {
   act: <V>(game: string, id: string, action: string, body: object = {}) => api<StateRes<V>>(`/casino/${game}/${id}/${action}`, { body }),
   active: <V>(game: string) => api<{ round: Round<V> | null }>(`/casino/${game}/active`),
   rounds: (game: string) => api<{ rounds: Round[] }>(`/casino/rounds?game=${game}&limit=15`),
+  horseCard: <C>() => api<{ card: C; rtp: number }>('/casino/horses/card'),
   fair: () => api<Fair & { previous: (Fair & { serverSeed: string }) | null }>('/casino/fair'),
   rotate: (clientSeed?: string) => api<{ previous: Fair; current: Fair }>('/casino/fair/rotate', { body: { clientSeed } }),
 };

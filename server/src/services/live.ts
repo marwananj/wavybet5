@@ -2,6 +2,8 @@ import { config } from '../config';
 import { D, prisma } from '../lib/prisma';
 import { af } from './apifootball';
 import { broadcastEvents } from './stream';
+import { classifyBet, dcCode, invalidateMarkets, noteBetType, parseLine, parseScore, saveMarket, side3, type MarketKey, type OutcomeIn } from './markets';
+import { applyEarlyPayout } from './settlement';
 
 /**
  * In-play engine.
@@ -29,114 +31,121 @@ interface LiveItem {
   odds: { id: number; name: string; values: LiveValue[] }[];
 }
 
-type LiveOutcome = { code: string; name: string; price: number; point?: number; suspended: boolean };
-type LiveMarket = { key: string; outcomes: LiveOutcome[] };
+type LiveMarket = { key: MarketKey; outcomes: OutcomeIn[] };
 
-const seenBetNames = new Set<string>();
 const livePrice = (odd: string) => {
   const p = parseFloat(odd);
   if (!Number.isFinite(p) || p <= 1) return null;
   return Math.max(1.01, Math.round(p * (1 - config.liveMargin) * 100) / 100);
 };
 
-function buildLiveMarkets(item: LiveItem, home: string, away: string): LiveMarket[] {
-  const out: LiveMarket[] = [];
+function buildLiveMarkets(item: LiveItem, home: string, away: string, minute: number | null): LiveMarket[] {
+  // group the feed's bets by our market key (a feed can list the same market under two names)
+  const byKey = new Map<MarketKey, LiveValue[]>();
   for (const bet of item.odds ?? []) {
-    const n = bet.name.trim().toLowerCase();
-    if (seenBetNames.size < 400 && !seenBetNames.has(n)) {
-      seenBetNames.add(n);
-      console.log(`[live] bet type seen: "${bet.name}" (id ${bet.id}) values: ${bet.values.slice(0, 4).map((v) => `${v.value}${v.handicap ? ` ${v.handicap}` : ''}`).join(', ')}`);
-    }
+    noteBetType('live', bet.name, bet.values.slice(0, 4).map((v) => `${v.value}${v.handicap ? ` ${v.handicap}` : ''}`).join(', '));
+    const key = classifyBet(bet.name);
+    if (!key) continue;
+    if (!byKey.has(key)) byKey.set(key, bet.values); // first listing wins
   }
-  const find = (re: RegExp, exclude = /half|corner|card|team|home|away|1st|2nd|asian|exact|minute|range/) =>
-    (item.odds ?? []).find((b) => re.test(b.name.toLowerCase()) && !exclude.test(b.name.toLowerCase()));
+  const out: LiveMarket[] = [];
 
-  // 1X2
-  const ft = find(/^(fulltime result|full time result|match winner|1x2)$/);
-  if (ft) {
-    const pick = (...labels: string[]) => ft.values.find((v) => labels.includes(String(v.value).toLowerCase()));
-    const h = pick('home', '1'), d = pick('draw', 'x'), a = pick('away', '2');
-    const hp = h && livePrice(h.odd), dp = d && livePrice(d.odd), ap = a && livePrice(a.odd);
-    if (h && a && hp && ap) {
-      out.push({
-        key: 'h2h',
-        outcomes: [
-          { code: 'home', name: home, price: hp, suspended: !!h.suspended },
-          ...(d && dp ? [{ code: 'draw', name: 'Draw', price: dp, suspended: !!d.suspended }] : []),
-          { code: 'away', name: away, price: ap, suspended: !!a.suspended },
-        ],
-      });
+  const three = (key: MarketKey) => {
+    const vals = byKey.get(key);
+    if (!vals) return;
+    const o: OutcomeIn[] = [];
+    for (const v of vals) {
+      const c = side3(v.value);
+      const p = livePrice(v.odd);
+      if (!c || !p || o.some((x) => x.code === c)) continue;
+      o.push({ code: c, name: c === 'home' ? home : c === 'away' ? away : 'Draw', price: p, suspended: !!v.suspended });
     }
-  }
-
-  // Total goals — pick the main line (flagged main, else the most balanced line)
-  const ou = find(/over\/under|total goals|goals over/);
-  if (ou) {
-    const lines = new Map<number, { over?: LiveValue; under?: LiveValue; main: boolean }>();
-    for (const v of ou.values) {
-      const m = String(v.value).match(/^(over|under)\s*([\d.]+)?$/i);
-      if (!m) continue;
-      const line = Number(v.handicap ?? m[2]);
-      // only whole (push = void) and half lines; quarter lines (x.25/x.75) need split settlement
-      if (!Number.isFinite(line) || !Number.isInteger(line * 2)) continue;
-      const slot = lines.get(line) ?? { main: false };
-      if (m[1].toLowerCase() === 'over') slot.over = v;
-      else slot.under = v;
+    if (o.some((x) => x.code === 'home') && o.some((x) => x.code === 'away')) {
+      o.sort((a, b) => ['home', 'draw', 'away'].indexOf(a.code) - ['home', 'draw', 'away'].indexOf(b.code));
+      out.push({ key, outcomes: o });
+    }
+  };
+  const lines = (key: MarketKey, max: number, halfOnly: boolean) => {
+    const vals = byKey.get(key);
+    if (!vals) return;
+    const by = new Map<number, { over?: LiveValue; under?: LiveValue; main: boolean }>();
+    for (const v of vals) {
+      const l = parseLine(v.value, v.handicap);
+      if (!l || !Number.isInteger(l.line * 2)) continue; // no quarter lines
+      if (halfOnly && Number.isInteger(l.line)) continue;
+      const slot = by.get(l.line) ?? { main: false };
+      slot[l.side] = v;
       if (v.main) slot.main = true;
-      lines.set(line, slot);
+      by.set(l.line, slot);
     }
-    const valid = [...lines.entries()].filter(([, s]) => s.over && s.under && livePrice(s.over.odd) && livePrice(s.under.odd));
-    const main =
-      valid.find(([, s]) => s.main) ??
-      valid.sort((a, b) => Math.abs(+a[1].over!.odd - +a[1].under!.odd) - Math.abs(+b[1].over!.odd - +b[1].under!.odd))[0];
-    if (main) {
-      const [line, s] = main;
-      out.push({
-        key: 'totals',
-        outcomes: [
-          // line-specific codes so a pick on an old line can never silently move to a new one
-          { code: `over_${line}`, name: `Over ${line}`, price: livePrice(s.over!.odd)!, point: line, suspended: !!s.over!.suspended },
-          { code: `under_${line}`, name: `Under ${line}`, price: livePrice(s.under!.odd)!, point: line, suspended: !!s.under!.suspended },
-        ],
-      });
+    const valid = [...by.entries()].filter(([, s]) => s.over && s.under && livePrice(s.over.odd) && livePrice(s.under.odd));
+    if (!valid.length) return;
+    const balance = (s: { over?: LiveValue; under?: LiveValue }) => Math.abs(+s.over!.odd - +s.under!.odd);
+    const main = valid.find(([, s]) => s.main) ?? [...valid].sort((a, b) => balance(a[1]) - balance(b[1]))[0];
+    // main line plus the nearest lines either side
+    const chosen = [...valid].sort((a, b) => Math.abs(a[0] - main[0]) - Math.abs(b[0] - main[0])).slice(0, max).sort((a, b) => a[0] - b[0]);
+    const outcomes: OutcomeIn[] = [];
+    for (const [line, st] of chosen) {
+      outcomes.push({ code: `over_${line}`, name: `Over ${line}`, price: livePrice(st.over!.odd)!, point: line, suspended: !!st.over!.suspended });
+      outcomes.push({ code: `under_${line}`, name: `Under ${line}`, price: livePrice(st.under!.odd)!, point: line, suspended: !!st.under!.suspended });
     }
-  }
+    out.push({ key, outcomes });
+  };
 
-  // Both teams to score
-  const bt = find(/both teams (to )?score/);
-  if (bt) {
-    const y = bt.values.find((v) => String(v.value).toLowerCase() === 'yes');
-    const no = bt.values.find((v) => String(v.value).toLowerCase() === 'no');
-    const yp = y && livePrice(y.odd), np = no && livePrice(no.odd);
-    if (y && no && yp && np) {
-      out.push({ key: 'btts', outcomes: [ { code: 'yes', name: 'Yes', price: yp, suspended: !!y.suspended }, { code: 'no', name: 'No', price: np, suspended: !!no.suspended } ] });
+  three('h2h');
+  const dc = byKey.get('double_chance');
+  if (dc) {
+    const names = { home_draw: `${home} or Draw`, home_away: `${home} or ${away}`, draw_away: `Draw or ${away}` } as const;
+    const o: OutcomeIn[] = [];
+    for (const v of dc) {
+      const c = dcCode(v.value);
+      const p = livePrice(v.odd);
+      if (c && p && !o.some((x) => x.code === c)) o.push({ code: c, name: names[c], price: p, suspended: !!v.suspended });
     }
+    if (o.length >= 2) out.push({ key: 'double_chance', outcomes: o });
   }
+  lines('totals', 5, false);
+  const bt = byKey.get('btts');
+  if (bt) {
+    const y = bt.find((v) => String(v.value).trim().toLowerCase() === 'yes');
+    const n = bt.find((v) => String(v.value).trim().toLowerCase() === 'no');
+    const yp = y && livePrice(y.odd), np = n && livePrice(n.odd);
+    if (y && n && yp && np) out.push({ key: 'btts', outcomes: [{ code: 'yes', name: 'Yes', price: yp, suspended: !!y.suspended }, { code: 'no', name: 'No', price: np, suspended: !!n.suspended }] });
+  }
+  // 1st-half markets only until half-time
+  if (minute == null || minute < 44) {
+    three('ht_h2h');
+    lines('ht_totals', 3, false);
+  }
+  const cs = byKey.get('correct_score');
+  if (cs) {
+    const o: OutcomeIn[] = [];
+    for (const v of cs) {
+      const sc = parseScore(v.value);
+      const p = livePrice(v.odd);
+      if (!sc || !p || sc[0] > 9 || sc[1] > 9) continue;
+      const code = `cs_${sc[0]}_${sc[1]}`;
+      if (!o.some((x) => x.code === code)) o.push({ code, name: `${sc[0]}-${sc[1]}`, price: p, suspended: !!v.suspended });
+    }
+    if (o.length >= 3) out.push({ key: 'correct_score', outcomes: o });
+  }
+  lines('corners_totals', 3, true);
+  three('corners_h2h');
   return out;
 }
 
-async function saveLiveMarkets(eventId: string, markets: LiveMarket[], lockAll: boolean) {
-  const keys: string[] = [];
-  for (const m of markets) {
-    keys.push(m.key);
-    const market = await prisma.market.upsert({
-      where: { eventId_key: { eventId, key: m.key } },
-      create: { eventId, key: m.key, suspended: lockAll },
-      update: { suspended: lockAll },
-    });
-    for (const o of m.outcomes) {
-      await prisma.outcome.upsert({
-        where: { marketId_code: { marketId: market.id, code: o.code } },
-        create: { marketId: market.id, code: o.code, name: o.name, price: D(o.price), point: o.point != null ? D(o.point) : null, suspended: o.suspended },
-        update: { name: o.name, price: D(o.price), point: o.point != null ? D(o.point) : null, active: true, suspended: o.suspended },
-      });
-    }
-    await prisma.outcome.updateMany({ where: { marketId: market.id, code: { notIn: m.outcomes.map((o) => o.code) } }, data: { active: false } });
+async function saveLiveMarkets(eventId: string, markets: LiveMarket[], lockAll: boolean, previousKeys: string[]) {
+  for (const m of markets) await saveMarket(eventId, m.key, m.outcomes, lockAll);
+  // markets the live feed no longer offers (e.g. 1st half after the break) stay visible but locked
+  const keys = markets.map((m) => m.key as string);
+  const gone = previousKeys.filter((k) => !keys.includes(k));
+  if (gone.length) {
+    await prisma.market.updateMany({ where: { eventId, key: { in: gone }, suspended: false }, data: { suspended: true } });
+    invalidateMarkets([eventId]);
   }
-  // markets the live feed no longer offers (e.g. pre-match double chance) stay locked
-  await prisma.market.updateMany({ where: { eventId, key: { notIn: keys }, suspended: false }, data: { suspended: true } });
 }
 
+const keysByEvent = new Map<string, string[]>();
 let running = false;
 export async function syncLiveOdds() {
   if (running) return 0;
@@ -176,14 +185,19 @@ export async function syncLiveOdds() {
         where: { id },
         data: { status: 'LIVE', liveUpdatedAt: now, liveSuspendedUntil: cooldownUntil, liveBlocked: blocked },
       });
-      const markets = buildLiveMarkets(item, ev.homeTeam, ev.awayTeam);
-      await saveLiveMarkets(id, markets, blocked || inCooldown);
+      const markets = buildLiveMarkets(item, ev.homeTeam, ev.awayTeam, elapsed);
+      const existing = keysByEvent.get(id) ?? (await prisma.market.findMany({ where: { eventId: id }, select: { key: true } })).map((m) => m.key);
+      await saveLiveMarkets(id, markets, blocked || inCooldown, existing);
+      keysByEvent.set(id, [...new Set([...existing, ...markets.map((m) => m.key)])]);
       if (markets.length) priced++;
     }
 
     // in play but missing from the feed -> lock
     const missing = liveEvents.filter((e) => e.status === 'LIVE' && !fed.has(e.id)).map((e) => e.id);
-    if (missing.length) await prisma.market.updateMany({ where: { eventId: { in: missing }, suspended: false }, data: { suspended: true } });
+    if (missing.length) {
+      await prisma.market.updateMany({ where: { eventId: { in: missing }, suspended: false }, data: { suspended: true } });
+      invalidateMarkets(missing);
+    }
     await broadcastEvents([...fed, ...missing]);
     return priced;
   } finally {
@@ -230,7 +244,11 @@ export async function syncLiveScores() {
       }
       if (minute != null && minute >= config.liveCutoffMinute) data.liveBlocked = true;
       await prisma.event.update({ where: { id: ev.id }, data });
-      if (goal) await prisma.market.updateMany({ where: { eventId: ev.id }, data: { suspended: true } });
+      if (goal) {
+        await prisma.market.updateMany({ where: { eventId: ev.id }, data: { suspended: true } });
+        invalidateMarkets([ev.id]);
+      }
+      if (goal && hs != null && as != null) await applyEarlyPayout(ev.id, hs, as);
       if (goal || hs !== ev.homeScore || as !== ev.awayScore || minute !== ev.liveElapsed) changed.push(ev.id);
       n++;
     }

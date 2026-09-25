@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { config } from '../config';
@@ -13,6 +14,7 @@ import { KENO_TABLES, type KenoRisk } from '../casino/engine/kenoTables';
 import { bjAct, bjStart, bjTotals, bjView, type BjAction, type BjState } from '../casino/engine/blackjack';
 import { hiloGuess, hiloSkip, hiloStart, hiloView, type HiloChoice, type HiloState } from '../casino/engine/hilo';
 import { CHICKEN_LEVELS, chickenLadder, chickenMultiplier, chickenStart, chickenStep, chickenView, type ChickenLevel, type ChickenState } from '../casino/engine/chicken';
+import { HORSE_RTP, makeCard, playHorses, type HorseBet } from '../casino/engine/horses';
 import { playWheel, WHEEL_RISKS, WHEEL_SEGMENTS, WHEEL_TABLES, type WheelRisk } from '../casino/engine/wheel';
 import { TOWER_FLOORS, TOWER_LEVELS, towerCashout, towerLadder, towerMultiplier, towerPick, towerStart, towerView, type TowerLevel, type TowerState } from '../casino/engine/tower';
 import { AA_PAYS, ANTE_PAYS, HAND_NAMES, holdemAct, holdemOutcome, holdemStart, holdemView, type HoldemState } from '../casino/engine/holdem';
@@ -69,6 +71,26 @@ r.post(
       previous: out.previous,
       current: { serverSeedHash: out.next.serverSeedHash, clientSeed: out.next.clientSeed, nonce: out.next.nonce },
     });
+  })
+);
+
+/** Next race card for this player (public: client seed + upcoming nonce). Guests get a preview card. */
+r.get(
+  '/horses/card',
+  asyncH(async (req, res) => {
+    const auth = req.headers.authorization;
+    let seed = { clientSeed: 'wavybet-preview', nonce: Math.floor(Date.now() / 60_000) };
+    if (auth?.startsWith('Bearer ')) {
+      try {
+        const { sub } = jwt.verify(auth.slice(7), config.jwtAccessSecret) as { sub: string };
+        const s = await activeSeed(prisma, sub);
+        seed = { clientSeed: s.clientSeed, nonce: s.nonce };
+      } catch {
+        /* guest preview */
+      }
+    }
+    const card = makeCard(seed.clientSeed, seed.nonce);
+    res.json({ card: { ...card, runners: card.runners.map(({ p: _p, ...r }) => r) }, rtp: HORSE_RTP });
   })
 );
 
@@ -146,6 +168,20 @@ r.post(
           .object({ stake, risk: z.enum(WHEEL_RISKS as unknown as [WheelRisk, ...WheelRisk[]]), segments: z.number().int().refine((n) => (WHEEL_SEGMENTS as readonly number[]).includes(n)) })
           .parse(req.body);
         out = await playInstant(uid, game, b.stake, (rng) => playWheel(b, rng));
+        break;
+      }
+      case 'horses': {
+        const b = z
+          .object({
+            cardId: z.string().min(1).max(64),
+            bets: z
+              .array(z.object({ type: z.enum(['win', 'place', 'forecast', 'quinella']), horses: z.array(z.number().int().min(0).max(7)).min(1).max(2), amount: z.number().positive() }))
+              .min(1)
+              .max(30),
+          })
+          .parse(req.body);
+        const total = Math.round(b.bets.reduce((a, x) => a + x.amount, 0) * 100) / 100;
+        out = await playInstant(uid, game, total, (rng, ctx) => playHorses({ bets: b.bets as HorseBet[], cardId: b.cardId }, makeCard(ctx.clientSeed, ctx.nonce), rng));
         break;
       }
       default:

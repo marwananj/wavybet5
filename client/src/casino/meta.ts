@@ -1,6 +1,6 @@
 import type { IconType } from 'react-icons';
 import { LuDices, LuCircleDot } from 'react-icons/lu';
-import { GiCardAceSpades, GiChicken, GiTwoCoins, GiCardRandom, GiPokerHand, GiCartwheel, GiStoneTower } from 'react-icons/gi';
+import { GiCardAceSpades, GiChicken, GiTwoCoins, GiCardRandom, GiPokerHand, GiCartwheel, GiStoneTower, GiHorseHead } from 'react-icons/gi';
 import { FaHandScissors } from 'react-icons/fa';
 import { MdGridOn } from 'react-icons/md';
 
@@ -16,6 +16,7 @@ export interface GameMeta {
 }
 
 export const GAMES: GameMeta[] = [
+  { id: 'horses', name: 'Wavy Horse Racing', path: '/casino/horses', tag: 'Virtual races · live commentary', c1: '#22c55e', c2: '#0b3b1f', edge: '97% RTP', Icon: GiHorseHead },
   { id: 'wheel', name: 'Wheel', path: '/casino/wheel', tag: 'Spin up to 49.5×', c1: '#ff8a3d', c2: '#5c1a00', edge: '99% RTP', Icon: GiCartwheel },
   { id: 'holdem', name: "Casino Hold'em", path: '/casino/holdem', tag: 'Poker vs dealer · AA Bonus 7:1', c1: '#e11d48', c2: '#3d0716', edge: 'Ante 97.8% RTP', Icon: GiPokerHand },
   { id: 'tower', name: 'Tower', path: '/casino/tower', tag: 'Climb 9 floors · dodge skulls', c1: '#6366f1', c2: '#1a1650', edge: '99% RTP', Icon: GiStoneTower },

@@ -8,6 +8,11 @@ export const MARKET_LABEL: Record<string, string> = {
   totals: 'Total goals',
   btts: 'Both teams to score',
   double_chance: 'Double chance',
+  ht_h2h: '1st half result',
+  ht_totals: '1st half goals',
+  correct_score: 'Correct score',
+  corners_totals: 'Total corners',
+  corners_h2h: 'Most corners',
 };
 export const marketLabel = (k: string) => MARKET_LABEL[k] ?? k;
 
