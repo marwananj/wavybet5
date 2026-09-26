@@ -63,7 +63,7 @@ export function verificationHtml(username: string, code: string, minutes: number
 
   <!-- footer -->
   <tr><td class="wb-pad" style="padding:16px 28px 24px;border-top:1px solid #232c45;">
-    <p style="font-size:12px;line-height:1.5;color:#6f7a95;margin:0;">Didn't create a WavyBet account? Just ignore this email. Never share your code with anyone, including WavyBet staff.</p>
+    <p style="font-size:12px;line-height:1.5;color:#6f7a95;margin:0;">Didn't create a WavyBet account? Just ignore this email. Never share your code with anyone, including WavyBet staff. Questions? <a href="mailto:wavybet@gmail.com" style="color:#3ad0ff;text-decoration:none;">wavybet@gmail.com</a></p>
     <p style="font-size:11px;line-height:1.5;color:#58627c;margin:10px 0 0;">18+ only. The gift must be wagered 10× before withdrawal. Please play responsibly.<br>© WavyBet · <a href="${site}" style="color:#3ad0ff;text-decoration:none;">${host}</a></p>
   </td></tr>
 

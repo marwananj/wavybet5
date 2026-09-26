@@ -1,3 +1,4 @@
+import { emailProvider, lastEmailFailure, sendVerificationEmail } from '../services/email';
 import { Router } from 'express';
 import { z } from 'zod';
 import { config } from '../config';
@@ -76,6 +77,21 @@ r.post(
     await prisma.user.update({ where: { id: req.params.id }, data: { isBanned: banned } });
     if (banned) await prisma.refreshToken.updateMany({ where: { userId: req.params.id }, data: { revokedAt: new Date() } });
     res.json({ ok: true });
+  })
+);
+
+/** send a test verification e-mail to the admin and return the provider's raw answer */
+r.post(
+  '/test-email',
+  asyncH(async (req, res) => {
+    const me = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+    const to = typeof req.body?.to === 'string' && req.body.to.includes('@') ? req.body.to : me.email;
+    try {
+      await sendVerificationEmail(to, me.username, '123456');
+      res.json({ ok: true, provider: emailProvider(), to });
+    } catch (e) {
+      res.json({ ok: false, provider: emailProvider(), to, error: (e as Error).message, raw: lastEmailFailure });
+    }
   })
 );
 

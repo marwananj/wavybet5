@@ -78,6 +78,10 @@ export const config = {
     publicKey: process.env.EMAILJS_PUBLIC_KEY ?? '',
     privateKey: process.env.EMAILJS_PRIVATE_KEY ?? '',
   },
+  /** Resend (resend.com) — preferred when RESEND_API_KEY is set; MAIL_FROM must be on a domain verified in Resend */
+  resend: { apiKey: process.env.RESEND_API_KEY ?? '' },
+  /** Mailjet (mailjet.com) — MAILJET_API_KEY + MAILJET_SECRET_KEY + MAIL_FROM (a sender address validated in Mailjet) */
+  mailjet: { apiKey: process.env.MAILJET_API_KEY ?? '', secretKey: process.env.MAILJET_SECRET_KEY ?? '' },
   /** Brevo (brevo.com) transactional e-mail API — used instead of EmailJS when BREVO_API_KEY is set */
   brevo: {
     apiKey: process.env.BREVO_API_KEY ?? '',
