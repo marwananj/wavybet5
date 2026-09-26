@@ -287,6 +287,39 @@ function Deposits() {
 }
 
 type AUser = { id: string; username: string; email: string; balance: string; country: string; kycStatus: string; isBanned: boolean; createdAt: string; role: string; emailVerified?: boolean };
+/** send a test verification e-mail and show exactly what the e-mail provider answered */
+function EmailTest() {
+  const [to, setTo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [r, setR] = useState<{ ok: boolean; provider: string; to: string; error?: string; raw?: { provider: string; status: number; body: string } | null } | null>(null);
+  const run = async () => {
+    setBusy(true);
+    setR(null);
+    try {
+      setR(await api('/admin/test-email', { body: { to: to || undefined } }));
+    } catch (e) {
+      setR({ ok: false, provider: '?', to, error: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card email-test">
+      <b>E-mail delivery test</b>
+      <div className="email-test-row">
+        <input placeholder="send to (default: your admin e-mail)" value={to} onChange={(e) => setTo(e.target.value)} />
+        <button className="btn btn-primary btn-sm" disabled={busy} onClick={run}>{busy ? <Spinner /> : 'Send test'}</button>
+      </div>
+      {r && (
+        <div className={`email-test-res ${r.ok ? 'ok' : 'err'}`}>
+          {r.ok ? `✓ Sent through ${r.provider} to ${r.to} — check the inbox (and spam).` : `✕ ${r.provider}: ${r.error}`}
+          {r.raw && <pre>{`${r.raw.provider} HTTP ${r.raw.status}\n${r.raw.body}`}</pre>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Users() {
   const [q, setQ] = useState('');
   const [users, setUsers] = useState<AUser[] | null>(null);
@@ -307,6 +340,7 @@ function Users() {
   };
   return (
     <>
+      <EmailTest />
       <label className="search-box"><input placeholder="Search email or username" value={q} onChange={(e) => setQ(e.target.value)} /></label>
       {users === null ? <Skeleton h={60} count={4} /> : (
         <div className="table-wrap">

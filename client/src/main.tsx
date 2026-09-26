@@ -45,6 +45,7 @@ import { Empty } from './components/ui';
 import { Link } from './lib/router';
 import type { Sport } from './lib/types';
 import { VerifyGate } from './components/VerifyGate';
+import { SUPPORT_EMAIL } from './lib/site';
 import { useAuth } from './lib/state';
 import { ChatPanel } from './components/ChatPanel';
 import { VipPage } from './pages/Vip';
@@ -104,7 +105,7 @@ function Shell() {
         <footer className="site-foot">
           <div className="foot-badges">
             <span className="age">18+</span>
-            <span>Licensed under Curaçao / Anjouan · License no. [your license number]</span>
+            <span>Play responsibly · Only bet what you can afford to lose</span>
           </div>
           <div className="foot-links">
             <Link to="/terms">Terms</Link>
@@ -112,6 +113,7 @@ function Shell() {
             <button type="button" className="link-btn" onClick={() => openChat('support')}>
               Live support
             </button>
+            <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
           </div>
           <small>© {new Date().getFullYear()} WavyBet. Gambling can be addictive — set limits and bet only what you can afford to lose.</small>
         </footer>

@@ -1,3 +1,4 @@
+import { SUPPORT_EMAIL } from '../lib/site';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { LuHeadphones, LuMessageCircle, LuSend, LuX } from 'react-icons/lu';
 import { api, type ApiError } from '../lib/api';
@@ -144,6 +145,9 @@ function Support({ active }: { active: boolean }) {
           <div>
             <b>WavyBet Support</b>
             <small>Real agents · we usually reply within minutes</small>
+            <small>
+              Or e-mail us: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
+            </small>
           </div>
         </div>
         <div className="sup-faq">

@@ -4,6 +4,7 @@ import { api, ApiError } from '../lib/api';
 import { takeVerifyError, useAuth } from '../lib/state';
 import type { User } from '../lib/types';
 import { Logo, Spinner } from './ui';
+import { SUPPORT_EMAIL } from '../lib/site';
 import { openChat } from './Layout';
 
 /**
@@ -234,6 +235,9 @@ export function VerifyGate() {
       <button type="button" className="vg-help" onClick={() => openChat('support')}>
         <LuHeadphones size={16} /> Need help? Live support
       </button>
+      <a className="vg-mail" href={`mailto:${SUPPORT_EMAIL}`}>
+        or e-mail {SUPPORT_EMAIL}
+      </a>
     </div>
   );
 }

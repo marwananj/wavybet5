@@ -1,3 +1,4 @@
+import { SUPPORT_EMAIL } from '../lib/site';
 import { useState, type FormEvent } from 'react';
 import { LuLogOut, LuShield, LuTicket, LuWallet } from 'react-icons/lu';
 import { api, ApiError, setAccessToken } from '../lib/api';
@@ -123,6 +124,10 @@ export function InfoPage({ kind }: { kind: 'terms' | 'responsible' }) {
           <p>Bets are accepted pre-match only and settled on the official full-time result as reported by our data provider. Postponed or abandoned matches are void and stakes returned. Palpable odds errors may be voided. Maximum payout per bet applies.</p>
           <h3>5. Closure</h3>
           <p>We may suspend accounts involved in fraud, bonus abuse, multiple accounts or collusion.</p>
+          <h3>6. Contact</h3>
+          <p>
+            Questions or complaints: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> or Live support on the site.
+          </p>
         </>
       ) : (
         <>
@@ -141,6 +146,9 @@ export function InfoPage({ kind }: { kind: 'terms' | 'responsible' }) {
           </ul>
           <h3>Get help</h3>
           <p>Free, confidential support: <a href="https://www.gamblingtherapy.org" target="_blank" rel="noreferrer">Gambling Therapy</a> (worldwide, multilingual) and <a href="https://www.begambleaware.org" target="_blank" rel="noreferrer">BeGambleAware</a>.</p>
+          <p>
+            To close your account or set limits with our help, e-mail <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
+          </p>
         </>
       )}
     </div>
