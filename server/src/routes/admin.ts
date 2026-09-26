@@ -79,6 +79,15 @@ r.post(
   })
 );
 
+/** manually confirm a player's e-mail (support case, e.g. the e-mail never arrived) */
+r.post(
+  '/users/:id/verify-email',
+  asyncH(async (req, res) => {
+    await prisma.user.update({ where: { id: req.params.id }, data: { emailVerified: true, verifyCodeHash: null, verifyCodeExpires: null, verifyAttempts: 0 } });
+    res.json({ ok: true });
+  })
+);
+
 r.post(
   '/users/:id/adjust',
   asyncH(async (req, res) => {

@@ -78,6 +78,12 @@ export const config = {
     publicKey: process.env.EMAILJS_PUBLIC_KEY ?? '',
     privateKey: process.env.EMAILJS_PRIVATE_KEY ?? '',
   },
+  /** Brevo (brevo.com) transactional e-mail API — used instead of EmailJS when BREVO_API_KEY is set */
+  brevo: {
+    apiKey: process.env.BREVO_API_KEY ?? '',
+    from: process.env.MAIL_FROM ?? '',
+    fromName: process.env.MAIL_FROM_NAME ?? 'WavyBet',
+  },
 
   /** VIP booster: every WAGER_REWARD_STEP wagered pays WAGER_REWARD_AMOUNT */
   wagerRewardStep: num('WAGER_REWARD_STEP', 5000),

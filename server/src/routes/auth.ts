@@ -104,17 +104,21 @@ r.post(
       },
     });
     let sent = false;
+    let emailError: string | null = null;
     if (!user.emailVerified) {
       try {
         await issueVerification(user);
         sent = true;
       } catch (e) {
-        console.error('[register] verification e-mail failed', (e as Error).message);
+        emailError = (e as Error).message;
+        console.error('[register] verification e-mail failed', emailError);
+        // let the player press "Resend" straight away
+        await prisma.user.update({ where: { id: user.id }, data: { verifySentAt: null } });
       }
     }
     const accessToken = await issueSession(res, user);
     const fresh = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
-    res.status(201).json({ accessToken, user: publicUser(fresh), verificationSent: sent });
+    res.status(201).json({ accessToken, user: publicUser(fresh), verificationSent: sent, emailError });
   })
 );
 
@@ -145,9 +149,37 @@ r.post(
     try {
       await issueVerification(user);
     } catch (e) {
-      throw new HttpError(502, (e as Error).message);
+      await prisma.user.update({ where: { id: user.id }, data: { verifySentAt: null } });
+      throw new HttpError(502, (e as Error).message, 'EMAIL_FAILED');
     }
     res.json({ ok: true, resendIn: RESEND_MS / 1000 });
+  })
+);
+
+/** typo in the address? an unverified player can correct it and get a new code */
+r.post(
+  '/verify/email',
+  requireAuth,
+  authLimiter,
+  asyncH(async (req, res) => {
+    const { email } = z.object({ email: z.string().trim().toLowerCase().email('Enter a valid e-mail').max(190) }).parse(req.body);
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+    if (user.emailVerified) throw new HttpError(400, 'Your e-mail is already verified');
+    if (email !== user.email) {
+      const taken = await prisma.user.findFirst({ where: { email, NOT: { id: user.id } }, select: { id: true } });
+      if (taken) throw new HttpError(409, 'That e-mail is already registered');
+    }
+    if (user.verifySentAt && Date.now() - user.verifySentAt.getTime() < RESEND_MS) {
+      throw new HttpError(429, `Please wait ${Math.ceil((RESEND_MS - (Date.now() - user.verifySentAt.getTime())) / 1000)}s before requesting another code`);
+    }
+    const updated = await prisma.user.update({ where: { id: user.id }, data: { email } });
+    try {
+      await issueVerification(updated);
+    } catch (e) {
+      await prisma.user.update({ where: { id: user.id }, data: { verifySentAt: null } });
+      throw new HttpError(502, (e as Error).message, 'EMAIL_FAILED');
+    }
+    res.json({ user: publicUser(updated), resendIn: RESEND_MS / 1000 });
   })
 );
 
