@@ -286,7 +286,7 @@ function Deposits() {
   );
 }
 
-type AUser = { id: string; username: string; email: string; balance: string; country: string; kycStatus: string; isBanned: boolean; createdAt: string; role: string };
+type AUser = { id: string; username: string; email: string; balance: string; country: string; kycStatus: string; isBanned: boolean; createdAt: string; role: string; emailVerified?: boolean };
 function Users() {
   const [q, setQ] = useState('');
   const [users, setUsers] = useState<AUser[] | null>(null);
@@ -315,7 +315,7 @@ function Users() {
             <tbody>
               {users.map((u) => (
                 <tr key={u.id} className={u.isBanned ? 'banned' : ''}>
-                  <td><b>{u.username}{u.role === 'ADMIN' && ' ★'}</b><small>{u.email}</small></td>
+                  <td><b>{u.username}{u.role === 'ADMIN' && ' ★'}</b><small>{u.email}{u.emailVerified === false && <em className="unverified-tag"> · e-mail not verified</em>}</small></td>
                   <td>{usd(u.balance)}</td>
                   <td>{u.country}</td>
                   <td>
@@ -329,6 +329,9 @@ function Users() {
                       const note = a && window.prompt('Reason');
                       if (a && note) act(() => api(`/admin/users/${u.id}/adjust`, { body: { amount: Number(a), note } }), 'Balance adjusted');
                     }}>Adjust</button>
+                    {u.emailVerified === false && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => act(() => api(`/admin/users/${u.id}/verify-email`, { method: 'POST' }), 'E-mail marked verified')}>Verify e-mail</button>
+                    )}
                     <button className="btn btn-ghost btn-sm" onClick={() => act(() => api(`/admin/users/${u.id}/ban`, { body: { banned: !u.isBanned } }), u.isBanned ? 'Unbanned' : 'Banned')}>{u.isBanned ? 'Unban' : 'Ban'}</button>
                   </td>
                 </tr>

@@ -3,6 +3,27 @@ import { api, refreshSession, setAccessToken, setSessionLostHandler } from './ap
 import { useLiveUpdates } from './live';
 import type { Pick, SportEvent, Outcome, User } from './types';
 
+const ERR_KEY = 'wb_verify_err';
+/** register() stores the reason when the first e-mail could not be sent */
+export const rememberVerifyError = (msg: string | null) => {
+  try {
+    if (msg) sessionStorage.setItem(ERR_KEY, msg);
+    else sessionStorage.removeItem(ERR_KEY);
+  } catch {
+    /* ignore */
+  }
+};
+export const takeVerifyError = () => {
+  try {
+    const m = sessionStorage.getItem(ERR_KEY);
+    sessionStorage.removeItem(ERR_KEY);
+    return m;
+  } catch {
+    return null;
+  }
+};
+
+
 /* --------------------------------- Toasts -------------------------------- */
 
 type Toast = { id: number; kind: 'ok' | 'err' | 'info'; text: string };
@@ -73,11 +94,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setModal(null);
       },
       async register(data) {
-        const d = await api<{ accessToken: string; user: User }>('/auth/register', { body: data });
+        const d = await api<{ accessToken: string; user: User; emailError?: string | null }>('/auth/register', { body: data });
+        rememberVerifyError(d.emailError ?? null);
         setAccessToken(d.accessToken);
         setUser(d.user);
         // new accounts confirm their e-mail with a 6-digit code before playing
-        setModal(d.user.emailVerified === false ? 'verify' : null);
+        setModal(null); // unverified players see the full-screen code page (VerifyGate)
       },
       async logout() {
         await api('/auth/logout', { method: 'POST' }).catch(() => {});

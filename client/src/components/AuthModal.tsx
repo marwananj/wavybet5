@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { LuMailCheck } from 'react-icons/lu';
+import { useState, type FormEvent } from 'react';
 import { api, ApiError } from '../lib/api';
 import type { User } from '../lib/types';
 import { useAuth } from '../lib/state';
@@ -13,115 +12,13 @@ const COUNTRIES: [string, string][] = [
   ['CH', 'Switzerland'], ['PL', 'Poland'], ['CZ', 'Czechia'], ['RO', 'Romania'], ['RS', 'Serbia'], ['HR', 'Croatia'], ['CL', 'Chile'], ['PE', 'Peru'], ['CO', 'Colombia'],
 ];
 
-/** 6-digit e-mail code (sent by the server through EmailJS). */
-function VerifyEmail() {
-  const { user, setUser, openAuth } = useAuth();
-  const [digits, setDigits] = useState<string[]>(Array(6).fill(''));
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
-  const [wait, setWait] = useState(0);
-  const refs = useRef<(HTMLInputElement | null)[]>([]);
-  useEffect(() => {
-    if (wait <= 0) return;
-    const t = setTimeout(() => setWait((w) => w - 1), 1000);
-    return () => clearTimeout(t);
-  }, [wait]);
-  useEffect(() => refs.current[0]?.focus(), []);
-  if (!user) return null;
-  const code = digits.join('');
-  const submit = async (c = code) => {
-    if (c.length !== 6) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      const d = await api<{ user: User }>('/auth/verify', { body: { code: c } });
-      setUser(d.user);
-      openAuth(null);
-    } catch (e) {
-      setErr((e as ApiError).message);
-      setDigits(Array(6).fill(''));
-      refs.current[0]?.focus();
-    } finally {
-      setBusy(false);
-    }
-  };
-  const put = (i: number, v: string) => {
-    const clean = v.replace(/\D/g, '');
-    if (clean.length > 1) {
-      // pasted the whole code
-      const next = clean.slice(0, 6).split('');
-      while (next.length < 6) next.push('');
-      setDigits(next);
-      if (clean.length >= 6) submit(clean.slice(0, 6));
-      return;
-    }
-    const next = [...digits];
-    next[i] = clean;
-    setDigits(next);
-    if (clean && i < 5) refs.current[i + 1]?.focus();
-    if (next.join('').length === 6) submit(next.join(''));
-  };
-  const resend = async () => {
-    setErr(null);
-    try {
-      await api('/auth/verify/send', { method: 'POST' });
-      setInfo('A new code is on its way — check your inbox and spam folder.');
-      setWait(60);
-    } catch (e) {
-      setErr((e as ApiError).message);
-    }
-  };
-  return (
-    <div className="verify">
-      <div className="verify-ico">
-        <LuMailCheck size={30} />
-      </div>
-      <h3>Verify your e-mail</h3>
-      <p>
-        We sent a 6-digit code to <b>{user.email}</b>. Enter it below to unlock deposits, betting and the casino.
-      </p>
-      <div className="otp">
-        {digits.map((d, i) => (
-          <input
-            key={i}
-            ref={(el) => void (refs.current[i] = el)}
-            inputMode="numeric"
-            autoComplete={i === 0 ? 'one-time-code' : 'off'}
-            maxLength={6}
-            value={d}
-            onChange={(e) => put(i, e.target.value)}
-            onKeyDown={(e) => e.key === 'Backspace' && !d && i > 0 && refs.current[i - 1]?.focus()}
-          />
-        ))}
-      </div>
-      {err && <div className="form-error">{err}</div>}
-      {info && !err && <div className="form-info">{info}</div>}
-      <button className="btn btn-primary btn-block" disabled={busy || code.length !== 6} onClick={() => submit()}>
-        {busy ? <Spinner /> : 'Verify & start playing'}
-      </button>
-      <button className="btn btn-ghost btn-block" disabled={wait > 0} onClick={resend}>
-        {wait > 0 ? `Resend code in ${wait}s` : "Didn't get it? Resend code"}
-      </button>
-      <button className="link-btn" onClick={() => openAuth(null)}>
-        I'll do it later
-      </button>
-    </div>
-  );
-}
-
 export function AuthModal() {
   const { modal, openAuth, login, register } = useAuth();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [f, setF] = useState({ login: '', email: '', username: '', password: '', dob: '', country: 'LB', terms: false });
   if (!modal) return null;
-  if (modal === 'verify')
-    return (
-      <Modal onClose={() => openAuth(null)}>
-        <VerifyEmail />
-      </Modal>
-    );
+  if (modal === 'verify') return null; // handled by the full-screen VerifyGate
   const set = (k: keyof typeof f) => (e: { target: { value: string; checked?: boolean; type?: string } }) =>
     setF((s) => ({ ...s, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
 

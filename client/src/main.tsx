@@ -44,7 +44,8 @@ const CASINO: Record<string, () => JSX.Element> = {
 import { Empty } from './components/ui';
 import { Link } from './lib/router';
 import type { Sport } from './lib/types';
-import { VerifyBanner } from './components/VerifyBanner';
+import { VerifyGate } from './components/VerifyGate';
+import { useAuth } from './lib/state';
 import { ChatPanel } from './components/ChatPanel';
 import { VipPage } from './pages/Vip';
 import { TipsPage } from './pages/Tips';
@@ -85,12 +86,20 @@ function Shell() {
     window.addEventListener('wb-chat', h);
     return () => window.removeEventListener('wb-chat', h);
   }, []);
+  const { user } = useAuth();
+  // players must confirm their e-mail code before they can enter the site
+  if (user && user.emailVerified === false)
+    return (
+      <>
+        <VerifyGate />
+        <ChatPanel open={chat.open} initialTab="support" onClose={() => setChat((c) => ({ ...c, open: false }))} />
+      </>
+    );
   return (
     <div className={`app${collapsed ? ' side-collapsed' : ''}`}>
       <Header onMenu={() => setCollapsed((c) => !c)} />
       <Sidebar collapsed={collapsed} sports={sports} />
       <main className="main">
-        <VerifyBanner />
         <Routes sports={sports} />
         <footer className="site-foot">
           <div className="foot-badges">
