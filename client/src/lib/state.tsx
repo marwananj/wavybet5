@@ -35,8 +35,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 interface AuthState {
   user: User | null;
   ready: boolean;
-  modal: null | 'login' | 'register';
-  openAuth: (m: 'login' | 'register' | null) => void;
+  modal: null | 'login' | 'register' | 'verify';
+  openAuth: (m: 'login' | 'register' | 'verify' | null) => void;
   login: (login: string, password: string) => Promise<void>;
   register: (data: Record<string, unknown>) => Promise<void>;
   logout: () => Promise<void>;
@@ -76,7 +76,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const d = await api<{ accessToken: string; user: User }>('/auth/register', { body: data });
         setAccessToken(d.accessToken);
         setUser(d.user);
-        setModal(null);
+        // new accounts confirm their e-mail with a 6-digit code before playing
+        setModal(d.user.emailVerified === false ? 'verify' : null);
       },
       async logout() {
         await api('/auth/logout', { method: 'POST' }).catch(() => {});

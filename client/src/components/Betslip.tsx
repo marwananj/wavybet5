@@ -5,6 +5,7 @@ import { marketLabel, odds as fmtOdds, usd } from '../lib/format';
 import { useAuth, useSlip, useToast } from '../lib/state';
 import { Link } from '../lib/router';
 import { Spinner } from './ui';
+import { SlipOpenBets } from './Cashout';
 
 type Mode = 'singles' | 'parlay';
 const QUICK = [5, 10, 25, 50, 100];
@@ -19,6 +20,7 @@ export function Betslip() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [placed, setPlaced] = useState<number | null>(null);
+  const [view, setView] = useState<'slip' | 'open'>('slip');
 
   const picks = slip.picks;
   const n = picks.length;
@@ -71,6 +73,7 @@ export function Betslip() {
           else slip.update(c.outcomeId, { prevOdds: p.odds, odds: c.odds });
         }
       }
+      if (err.code === 'EMAIL_UNVERIFIED') openAuth('verify');
       setError(err.message);
     } finally {
       setBusy(false);
@@ -96,7 +99,17 @@ export function Betslip() {
         </button>
 
         <div className="slip-body">
-          {placed !== null && n === 0 ? (
+          <div className="slip-views">
+            <button className={view === 'slip' ? 'on' : ''} onClick={() => setView('slip')}>
+              Betslip {n > 0 && <em>{n}</em>}
+            </button>
+            <button className={view === 'open' ? 'on' : ''} onClick={() => setView('open')}>
+              My bets · Cash out
+            </button>
+          </div>
+          {view === 'open' ? (
+            <SlipOpenBets />
+          ) : placed !== null && n === 0 ? (
             <div className="slip-empty">
               <div className="slip-success">✓</div>
               <p>
@@ -126,7 +139,7 @@ export function Betslip() {
                 </button>
               </div>
 
-              <div className="slip-picks">
+              <div className={`slip-picks${mode === 'parlay' ? ' parlay' : ''}`}>
                 {picks.map((p) => (
                   <div key={p.outcomeId} className={`pick${p.unavailable ? ' dead' : ''}`}>
                     <div className="pick-top">
@@ -163,12 +176,15 @@ export function Betslip() {
                 ))}
               </div>
 
-              <div className="slip-foot">
+              <div className={`slip-foot${mode === 'parlay' ? ' parlay' : ''}`}>
                 {mode === 'parlay' && (
                   <>
-                    <div className="slip-line">
-                      <span>{n}-leg parlay odds</span>
-                      <b className="accent">{fmtOdds(parlayOdds)}</b>
+                    <div className="parlay-card">
+                      <div>
+                        <small>{n}-leg parlay</small>
+                        <b>{picks.map((p) => fmtOdds(p.odds)).join(' × ')}</b>
+                      </div>
+                      <span className="parlay-odds">{fmtOdds(parlayOdds)}</span>
                     </div>
                     <label className="stake-input big">
                       <span>$</span>

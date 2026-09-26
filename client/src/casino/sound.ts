@@ -151,6 +151,28 @@ export const sfx = {
     arp([784, 1047, 1319], 0.08, { delay: 0.25 });
   },
   /** ball dropping into a pocket / hitting a fret */
+  /** ball clipping a metal fret between pockets */
+  fret: (v = 1) => {
+    burst({ freq: 4600, q: 9, dur: 0.022, vol: 0.28 * v });
+    tone({ freq: 2900 + Math.random() * 500, type: 'sine', dur: 0.025, vol: 0.05 * v });
+  },
+  /** ball striking a diamond deflector on the bowl */
+  diamond: () => {
+    burst({ freq: 1500, q: 2.5, dur: 0.06, vol: 0.55 });
+    tone({ freq: 680, to: 430, type: 'sine', dur: 0.09, vol: 0.18 });
+  },
+  /** ball dropping into its pocket for good */
+  settle: () => {
+    burst({ freq: 2200, q: 3, dur: 0.05, vol: 0.45 });
+    tone({ freq: 900, to: 600, type: 'sine', dur: 0.08, vol: 0.12 });
+    burst({ freq: 2800, q: 5, dur: 0.03, vol: 0.2, delay: 0.16 });
+    burst({ freq: 3000, q: 6, dur: 0.02, vol: 0.1, delay: 0.27 });
+  },
+  /** riffle shuffle of a deck */
+  riffle: (delay = 0) => {
+    for (let i = 0; i < 26; i++) burst({ freq: 2600 + Math.random() * 1800, q: 4, dur: 0.018, vol: 0.12 + Math.random() * 0.08, delay: delay + i * 0.022 });
+    burst({ freq: 900, q: 1, dur: 0.12, vol: 0.2, delay: delay + 0.62 });
+  },
   bounce: (v = 1) => (burst({ freq: 3800, q: 5, dur: 0.03, vol: 0.35 * v }), tone({ freq: 1900, type: 'sine', dur: 0.03, vol: 0.06 * v })),
   clack: () => {
     burst({ freq: 2600, q: 3, dur: 0.05, vol: 0.5 });
@@ -200,44 +222,70 @@ export const sfx = {
 export function rollLoop() {
   const c = ac();
   if (!c || !master) return { set: (_s: number) => {}, stop: () => {} };
-  const s = c.createBufferSource();
-  s.buffer = noise(c);
-  s.loop = true;
-  const f = c.createBiquadFilter();
-  f.type = 'bandpass';
-  f.Q.value = 1.4;
-  const g = c.createGain();
-  g.gain.value = 0.0001;
-  const hum = c.createOscillator();
-  hum.type = 'triangle';
-  const hg = c.createGain();
-  hg.gain.value = 0.0001;
-  s.connect(f);
-  f.connect(g);
-  g.connect(master);
-  hum.connect(hg);
-  hg.connect(master);
-  s.start();
-  hum.start();
+  const out = master;
+  // A: the ball's whirr on the polished track (band-passed noise)
+  const nA = c.createBufferSource();
+  nA.buffer = noise(c);
+  nA.loop = true;
+  const fA = c.createBiquadFilter();
+  fA.type = 'bandpass';
+  fA.Q.value = 2.2;
+  const gA = c.createGain();
+  gA.gain.value = 0.0001;
+  nA.connect(fA);
+  fA.connect(gA);
+  gA.connect(out);
+  // B: low wooden rumble with a once-per-lap swell (tremolo)
+  const nB = c.createBufferSource();
+  nB.buffer = noise(c);
+  nB.loop = true;
+  const fB = c.createBiquadFilter();
+  fB.type = 'lowpass';
+  fB.frequency.value = 260;
+  const gB = c.createGain();
+  gB.gain.value = 0.0001;
+  const trem = c.createGain();
+  trem.gain.value = 0.6;
+  const lfo = c.createOscillator();
+  lfo.frequency.value = 2;
+  const lfoDepth = c.createGain();
+  lfoDepth.gain.value = 0.4;
+  lfo.connect(lfoDepth);
+  lfoDepth.connect(trem.gain);
+  nB.connect(fB);
+  fB.connect(trem);
+  trem.connect(gB);
+  gB.connect(out);
+  // C: faint ceramic ring of the ball
+  const ring = c.createOscillator();
+  ring.type = 'sine';
+  const gC = c.createGain();
+  gC.gain.value = 0.0001;
+  ring.connect(gC);
+  gC.connect(out);
+  nA.start(0, Math.random());
+  nB.start(0, Math.random());
+  lfo.start();
+  ring.start();
   let stopped = false;
   return {
     set(speed: number) {
       if (stopped) return;
       const t = c.currentTime;
       const x = Math.max(0, Math.min(1, speed));
-      f.frequency.setTargetAtTime(500 + x * 2600, t, 0.05);
-      g.gain.setTargetAtTime(0.02 + x * 0.16, t, 0.05);
-      hum.frequency.setTargetAtTime(60 + x * 90, t, 0.05);
-      hg.gain.setTargetAtTime(0.01 + x * 0.03, t, 0.05);
+      fA.frequency.setTargetAtTime(700 + x * 2600, t, 0.08);
+      gA.gain.setTargetAtTime(0.015 + x * 0.12, t, 0.08);
+      gB.gain.setTargetAtTime(0.05 + x * 0.22, t, 0.08);
+      lfo.frequency.setTargetAtTime(0.6 + x * 3.4, t, 0.1); // laps per second
+      ring.frequency.setTargetAtTime(1500 + x * 900, t, 0.1);
+      gC.gain.setTargetAtTime(0.002 + x * 0.008, t, 0.1);
     },
     stop() {
       if (stopped) return;
       stopped = true;
       const t = c.currentTime;
-      g.gain.setTargetAtTime(0.0001, t, 0.08);
-      hg.gain.setTargetAtTime(0.0001, t, 0.08);
-      s.stop(t + 0.5);
-      hum.stop(t + 0.5);
+      for (const g of [gA, gB, gC]) g.gain.setTargetAtTime(0.0001, t, 0.06);
+      for (const n of [nA, nB, lfo, ring]) n.stop(t + 0.4);
     },
   };
 }

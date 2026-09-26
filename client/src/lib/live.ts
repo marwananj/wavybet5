@@ -22,7 +22,31 @@ function connect() {
       /* ignore malformed frame */
     }
   });
+  for (const name of ['chat', 'support']) {
+    es.addEventListener(name, (e) => {
+      try {
+        const d = JSON.parse((e as MessageEvent).data);
+        named.get(name)?.forEach((l) => l(d));
+      } catch {
+        /* ignore */
+      }
+    });
+  }
   // EventSource reconnects by itself (server sends retry: 3000)
+}
+
+/* other named pushes on the same connection (chat messages, support hints) */
+type NamedListener = (data: any) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
+const named = new Map<string, Set<NamedListener>>();
+export function subscribeNamed(name: 'chat' | 'support', fn: NamedListener) {
+  if (!named.has(name)) named.set(name, new Set());
+  named.get(name)!.add(fn);
+  // reuse the shared connection lifecycle
+  const off = subscribeLive(() => {});
+  return () => {
+    named.get(name)!.delete(fn);
+    off();
+  };
 }
 
 export function subscribeLive(fn: Listener) {

@@ -3,7 +3,10 @@ import { LuChevronDown } from 'react-icons/lu';
 import { usd } from '../../lib/format';
 import { casino, type Card, type Round } from '../api';
 import { ActionBar, BetAmount, GameShell, PlayButton, PlayingCard, useBet, useCasinoConfig } from '../shared';
-import { resultSound, sfx } from '../sound';
+import { resultSound, sfx, speak } from '../sound';
+import { HoldemDealer, ShuffleDeck, type DealerMood } from './HoldemDealer';
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface Outcome {
   playerHand: string;
@@ -81,6 +84,21 @@ const Spot = ({ label, amount, state }: { label: string; amount: number; state?:
   </div>
 );
 
+const article = (h: string) => (/^[AEIOU]/i.test(h) ? `an ${h.toLowerCase()}` : `a ${h.toLowerCase()}`).replace('a high card', 'high card').replace('a two pair', 'two pair');
+
+function dealerLine(v: HoldemView, o: Outcome, net: number): [string, DealerMood, string] {
+  if (v.folded) return o.aaReturn > 0 ? ['Folded — but your AA Bonus pays!', 'happy', 'Your A A bonus pays.'] : [`Folded. I had ${article(o.dealerHand)}.`, 'idle', 'Better luck next hand.'];
+  if (!o.qualifies) return [`I don't qualify — Ante pays, Call pushes.`, 'sad', 'Dealer does not qualify. Ante pays.'];
+  if (net > 0)
+    return [
+      o.playerHand === o.dealerHand ? `Your ${o.playerHand.toLowerCase()} plays higher. Winner!` : `${o.playerHand} beats my ${o.dealerHand.toLowerCase()}. Winner!`,
+      'sad',
+      'Player wins. Congratulations.',
+    ];
+  if (o.winner === 'tie') return ['A tie — stakes are returned.', 'idle', 'It is a tie.'];
+  return [o.playerHand === o.dealerHand ? `Same hand — mine plays higher.` : `Dealer wins with ${article(o.dealerHand)}.`, 'happy', `Dealer wins with ${article(o.dealerHand)}.`];
+}
+
 export function HoldemGame() {
   const bet = useBet();
   useCasinoConfig();
@@ -92,6 +110,14 @@ export function HoldemGame() {
   const [fresh, setFresh] = useState(false);
   const [revealStep, setRevealStep] = useState(5); // staged reveal of turn / river / dealer
   const timers = useRef<number[]>([]);
+  const [shuffling, setShuffling] = useState(false);
+  const [dealing, setDealing] = useState(false);
+  const [talk, setTalk] = useState<{ line: string | null; mood: DealerMood; key: number }>({ line: 'Welcome to the table — place your Ante.', mood: 'idle', key: 0 });
+  const say = (line: string, mood: DealerMood = 'talk', voice?: string) => {
+    setTalk((t) => ({ line, mood, key: t.key + 1 }));
+    if (voice) speak(voice, { rate: 1.02 });
+    if (mood === 'talk') timers.current.push(window.setTimeout(() => setTalk((t) => (t.line === line ? { ...t, mood: 'idle' } : t)), 1400));
+  };
 
   useEffect(() => {
     if (!bet.user) return;
@@ -111,16 +137,35 @@ export function HoldemGame() {
     setBusy(true);
     bet.debit(total);
     sfx.bet();
+    // the dealer shuffles while the server deals — at least one full riffle on screen
+    setShuffling(true);
+    say('Shuffling up… good luck!', 'talk', 'Shuffling up. Good luck.');
+    sfx.riffle(0.1);
+    sfx.riffle(0.8);
     try {
-      const d = await casino.start<HoldemView>('holdem', { stake: anteN, aa: aaN > 0 ? aaN : undefined });
+      const [d] = await Promise.all([casino.start<HoldemView>('holdem', { stake: anteN, aa: aaN > 0 ? aaN : undefined }), sleep(1450)]);
+      setShuffling(false);
       setFresh(true);
+      setDealing(true);
       setRevealStep(0);
       setRound(d.round);
       bet.setBalance(d.balance);
-      [0, 0.12, 0.24, 0.36].forEach((t) => sfx.deal(t));
-      [0.75, 0.9, 1.05].forEach((t) => sfx.flip(t));
-      timers.current.push(window.setTimeout(() => setFresh(false), 1400));
+      // player, player, dealer, dealer, then the flop
+      [0, 0.24, 0.12, 0.36, 0.6, 0.75, 0.9].forEach((t) => sfx.deal(t));
+      [0.95, 1.1, 1.25].forEach((t) => sfx.flip(t));
+      timers.current.push(
+        window.setTimeout(() => {
+          setFresh(false);
+          setDealing(false);
+          const nv = d.round.view;
+          if (!nv) return;
+          const aaHit = nv.aa > 0 && nv.aaPays > 0;
+          say(aaHit ? `AA Bonus! ${nv.playerNow} pays ${nv.aaPays} to 1.` : `You have ${article(nv.playerNow)}. Call or fold?`, aaHit ? 'happy' : 'talk');
+        }, 1500)
+      );
     } catch (e) {
+      setShuffling(false);
+      say('Place your Ante when you are ready.', 'idle');
       bet.fail(e);
     } finally {
       setBusy(false);
@@ -134,7 +179,8 @@ export function HoldemGame() {
     if (action === 'call') {
       bet.debit(unit * 2);
       sfx.chip();
-    }
+      say('Call. Turn and river…', 'talk');
+    } else say('Fold. Let’s see what you missed…', 'talk');
     try {
       const d = await casino.act<HoldemView>('holdem', round.id, action);
       setRound(d.round);
@@ -156,6 +202,11 @@ export function HoldemGame() {
           setRefresh((r) => r + 1);
           const net = Number(d.round.payout) - Number(d.round.stake);
           resultSound(net > 0 ? Math.max(1.01, d.round.multiplier) : net === 0 ? 1 : 0);
+          const oc = d.round.view?.outcome;
+          if (oc && d.round.view) {
+            const [line, mood, voice] = dealerLine(d.round.view, oc, net);
+            say(line, mood, voice);
+          }
         }, 1900)
       );
     } catch (e) {
@@ -214,16 +265,20 @@ export function HoldemGame() {
       stage={
         <div className="he-table">
           <div className="he-felt-text">CASINO HOLD'EM · AA BONUS PAYS 7 TO 1</div>
+          <div className="he-croupier">
+            <HoldemDealer mood={talk.mood} line={talk.line} lineKey={talk.key} dealing={dealing || shuffling} />
+            <ShuffleDeck shuffling={shuffling} />
+          </div>
           <div className="he-dealer">
             <div className="he-cards">
-              {v ? (
+              {v && !shuffling ? (
                 [0, 1].map((i) => (
                   <PlayingCard
                     key={`d${i}-${round!.id}`}
                     card={dealerShown ? v.dealer?.[i] : null}
                     faceDown={!dealerShown}
                     className={`deal ${dealerShown ? best('d', i) : ''}`}
-                    style={{ animationDelay: fresh ? `${120 + i * 240}ms` : '0ms' }}
+                    style={{ animationDelay: fresh ? `${120 + i * 240}ms` : '0ms', ['--fx' as string]: `${(0.5 - i) * 30}px` }}
                   />
                 ))
               ) : (
@@ -246,13 +301,13 @@ export function HoldemGame() {
 
           <div className="he-board">
             {[0, 1, 2, 3, 4].map((i) =>
-              v ? (
+              v && !shuffling ? (
                 <PlayingCard
                   key={`b${i}-${round!.id}`}
                   card={boardShown(i) ? v.board[i] : null}
                   faceDown={!boardShown(i)}
                   className={`deal ${i >= 3 && !boardShown(i) ? 'he-slot' : ''} ${best('p', i + 2)}`}
-                  style={{ animationDelay: fresh ? `${600 + i * 150}ms` : '0ms' }}
+                  style={{ animationDelay: fresh ? `${600 + i * 150}ms` : '0ms', ['--fx' as string]: `calc(${2 - i} * (var(--w) + 6px))` }}
                 />
               ) : (
                 <PlayingCard key={i} faceDown className="ghost" />
@@ -267,9 +322,14 @@ export function HoldemGame() {
               <Spot label="AA BONUS" amount={v ? unit * v.aa : aaN} state={v && v.aa > 0 && showAll ? (o && o.aaReturn > 0 ? 'win' : 'lose') : ''} />
             </div>
             <div className="he-cards">
-              {v ? (
+              {v && !shuffling ? (
                 v.player.map((c, i) => (
-                  <PlayingCard key={`p${i}-${round!.id}`} card={c} className={`deal ${best('p', i)} ${v.folded ? 'folded' : ''}`} style={{ animationDelay: fresh ? `${i * 240}ms` : '0ms' }} />
+                  <PlayingCard
+                    key={`p${i}-${round!.id}`}
+                    card={c}
+                    className={`deal ${best('p', i)} ${v.folded ? 'folded' : ''}`}
+                    style={{ animationDelay: fresh ? `${i * 240}ms` : '0ms', ['--fx' as string]: `${(0.5 - i) * 30}px` }}
+                  />
                 ))
               ) : (
                 <>
@@ -279,18 +339,20 @@ export function HoldemGame() {
               )}
             </div>
             <span className="he-label">
-              {v ? (
+              {v && !shuffling ? (
                 <>
                   You · <b>{showAll && o ? o.playerHand : v.playerNow}</b>
                   {v.aa > 0 && !v.finished && v.aaPays > 0 && <em className="q"> AA Bonus hit {v.aaPays}:1!</em>}
                 </>
+              ) : shuffling ? (
+                'Shuffling…'
               ) : (
                 'Place your Ante and deal'
               )}
             </span>
           </div>
 
-          {net != null && o && (
+          {net != null && o && !shuffling && (
             <div className={`stage-banner ${net > 0 ? 'win' : net === 0 ? 'push' : 'loss'}`}>
               {v!.folded
                 ? `Folded${o.aaReturn > 0 ? ` · AA Bonus pays ${usd(Number(round!.payout))}` : ''}`

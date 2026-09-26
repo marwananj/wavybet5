@@ -4,6 +4,7 @@ import { Link } from '../lib/router';
 import { BackBar } from '../components/Layout';
 import { GamePoster, PosterGrid } from './Posters';
 import { GAMES } from './meta';
+import { BetFeed } from '../components/BetFeed';
 
 export function CasinoLobby() {
   return (
@@ -42,6 +43,7 @@ export function CasinoLobby() {
         </div>
       </section>
       <PosterGrid />
+      <BetFeed title="Live casino bets" />
     </div>
   );
 }

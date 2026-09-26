@@ -9,6 +9,9 @@ export interface User {
   selfExcludedUntil: string | null;
   dailyDepositLimit: string | null;
   createdAt: string;
+  emailVerified?: boolean;
+  bonusWagerLeft?: string;
+  firstDepositBonusClaimed?: boolean;
 }
 
 export interface Outcome {
@@ -69,7 +72,7 @@ export interface BetSel {
   /** paid early by the "2 goals ahead" rule */
   early?: boolean;
 }
-export type BetStatus = 'OPEN' | 'WON' | 'LOST' | 'VOID';
+export type BetStatus = 'OPEN' | 'WON' | 'LOST' | 'VOID' | 'CASHOUT';
 export interface Bet {
   id: string;
   type: 'SINGLE' | 'PARLAY' | 'BUILDER';
@@ -80,12 +83,13 @@ export interface Bet {
   status: BetStatus;
   createdAt: string;
   settledAt: string | null;
+  cashedOutAt?: string | null;
   selections: BetSel[];
 }
 
 export interface Tx {
   id: string;
-  type: 'DEPOSIT' | 'WITHDRAWAL' | 'BET_STAKE' | 'BET_PAYOUT' | 'BET_REFUND' | 'ADJUSTMENT' | 'CASINO_BET' | 'CASINO_WIN';
+  type: 'DEPOSIT' | 'WITHDRAWAL' | 'BET_STAKE' | 'BET_PAYOUT' | 'BET_REFUND' | 'ADJUSTMENT' | 'CASINO_BET' | 'CASINO_WIN' | 'BONUS';
   status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
   amount: string;
   balanceAfter: string | null;

@@ -9,6 +9,10 @@ import { EventCard, FeaturedCard } from '../components/EventCard';
 import { SportStrip } from '../components/Layout';
 import { OriginalsRow } from '../casino/Lobby';
 import { Empty, Skeleton, SportIcon } from '../components/ui';
+import { FirstDepositPoster } from '../components/FirstDepositPromo';
+import { BetFeed } from '../components/BetFeed';
+import { TipCard, useTips } from './Tips';
+import { LuLightbulb } from 'react-icons/lu';
 
 const SLIDES: { kicker: string; title: string; text: string; cta: string; to: string; tone: string; open?: boolean }[] = [
   {
@@ -114,6 +118,7 @@ function Carousel({ events }: { events: SportEvent[] }) {
 }
 
 export function HomePage({ sports }: { sports: Sport[] }) {
+  const { user } = useAuth();
   const { search, navigate } = useRouter();
   const tab = (search.get('tab') as 'popular' | 'live' | 'upcoming') ?? 'popular';
   const [featured, setFeatured] = useState<SportEvent[] | null>(null);
@@ -161,7 +166,9 @@ export function HomePage({ sports }: { sports: Sport[] }) {
       </div>
 
       {tab === 'popular' && <Hero />}
+      {tab === 'popular' && !user?.firstDepositBonusClaimed && <FirstDepositPoster />}
       {tab === 'popular' && <OriginalsRow />}
+      {tab === 'popular' && <TipsStrip />}
       {tab === 'popular' && (featured === null ? <div className="carousel"><Skeleton h={190} count={3} /></div> : featured.length > 0 && <Carousel events={featured} />)}
 
       {tab !== 'live' && (
@@ -188,6 +195,30 @@ export function HomePage({ sports }: { sports: Sport[] }) {
           events.map((e) => <EventCard key={e.id} ev={e} />)
         )}
       </div>
+      <BetFeed />
     </div>
+  );
+}
+
+/** Tips of the day preview on the lobby */
+function TipsStrip() {
+  const d = useTips();
+  if (!d || !d.tips.length) return null;
+  return (
+    <section className="tips-strip">
+      <div className="section-head">
+        <h3>
+          <LuLightbulb size={17} /> Tips of the day
+        </h3>
+        <Link to="/tips" className="btn btn-ghost btn-sm">
+          All tips
+        </Link>
+      </div>
+      <div className="tips-row">
+        {d.tips.slice(0, 4).map((t) => (
+          <TipCard key={t.outcomeId} t={t} />
+        ))}
+      </div>
+    </section>
   );
 }

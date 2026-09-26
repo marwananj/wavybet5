@@ -7,6 +7,7 @@ import { config } from '../config';
 import { asyncH, HttpError } from '../lib/http';
 import { prisma } from '../lib/prisma';
 import { requireAuth, signAccessToken } from '../middleware/auth';
+import { emailConfigured, sendVerificationEmail } from '../services/email';
 
 const r = Router();
 const COOKIE = 'wb_rt';
@@ -48,9 +49,13 @@ export function ipCountry(req: Request): string | undefined {
 export function publicUser(u: {
   id: string; email: string; username: string; role: string; balance: unknown; country: string;
   kycStatus: string; selfExcludedUntil: Date | null; dailyDepositLimit: unknown; createdAt: Date;
+  emailVerified?: boolean; bonusWagerLeft?: unknown; firstDepositBonusAt?: Date | null;
 }) {
   return {
     id: u.id, email: u.email, username: u.username, role: u.role, balance: String(u.balance),
+    emailVerified: u.emailVerified !== false,
+    bonusWagerLeft: String(u.bonusWagerLeft ?? 0),
+    firstDepositBonusClaimed: !!u.firstDepositBonusAt,
     country: u.country, kycStatus: u.kycStatus, selfExcludedUntil: u.selfExcludedUntil,
     dailyDepositLimit: u.dailyDepositLimit == null ? null : String(u.dailyDepositLimit), createdAt: u.createdAt,
   };
@@ -94,10 +99,78 @@ r.post(
         dateOfBirth: body.dateOfBirth,
         country: body.country,
         lastLoginAt: new Date(),
+        // accounts must confirm their e-mail before playing (only when EmailJS is configured)
+        emailVerified: !emailConfigured(),
       },
     });
+    let sent = false;
+    if (!user.emailVerified) {
+      try {
+        await issueVerification(user);
+        sent = true;
+      } catch (e) {
+        console.error('[register] verification e-mail failed', (e as Error).message);
+      }
+    }
     const accessToken = await issueSession(res, user);
-    res.status(201).json({ accessToken, user: publicUser(user) });
+    const fresh = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    res.status(201).json({ accessToken, user: publicUser(fresh), verificationSent: sent });
+  })
+);
+
+/* ───────────────────────────── e-mail verification ───────────────────────────── */
+
+const codeHash = (userId: string, code: string) => crypto.createHash('sha256').update(`${userId}:${code}`).digest('hex');
+const RESEND_MS = 60_000;
+
+async function issueVerification(user: { id: string; email: string; username: string }) {
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { verifyCodeHash: codeHash(user.id, code), verifyCodeExpires: new Date(Date.now() + 15 * 60_000), verifySentAt: new Date(), verifyAttempts: 0 },
+  });
+  await sendVerificationEmail(user.email, user.username, code);
+}
+
+r.post(
+  '/verify/send',
+  requireAuth,
+  authLimiter,
+  asyncH(async (req, res) => {
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+    if (user.emailVerified) return res.json({ ok: true, verified: true });
+    if (user.verifySentAt && Date.now() - user.verifySentAt.getTime() < RESEND_MS) {
+      throw new HttpError(429, `Please wait ${Math.ceil((RESEND_MS - (Date.now() - user.verifySentAt.getTime())) / 1000)}s before requesting another code`);
+    }
+    try {
+      await issueVerification(user);
+    } catch (e) {
+      throw new HttpError(502, (e as Error).message);
+    }
+    res.json({ ok: true, resendIn: RESEND_MS / 1000 });
+  })
+);
+
+r.post(
+  '/verify',
+  requireAuth,
+  authLimiter,
+  asyncH(async (req, res) => {
+    const { code } = z.object({ code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code') }).parse(req.body);
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+    if (user.emailVerified) return res.json({ user: publicUser(user) });
+    if (!user.verifyCodeHash || !user.verifyCodeExpires || user.verifyCodeExpires < new Date()) throw new HttpError(400, 'Code expired — request a new one');
+    if (user.verifyAttempts >= 5) throw new HttpError(429, 'Too many wrong codes — request a new one');
+    const ok = crypto.timingSafeEqual(Buffer.from(codeHash(user.id, code)), Buffer.from(user.verifyCodeHash));
+    if (!ok) {
+      await prisma.user.update({ where: { id: user.id }, data: { verifyAttempts: { increment: 1 } } });
+      throw new HttpError(400, `Wrong code (${4 - user.verifyAttempts} attempts left)`);
+    }
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: true, verifyCodeHash: null, verifyCodeExpires: null, verifyAttempts: 0 },
+    });
+    res.json({ user: publicUser(updated) });
   })
 );
 

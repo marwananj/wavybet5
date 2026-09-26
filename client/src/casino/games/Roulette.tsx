@@ -158,6 +158,8 @@ const Layers = ({ n, cls, gap }: { n: number; cls: string; gap: number }) => (
 /* ─────────────────────────────── the wheel ────────────────────────────── */
 
 interface Anim {
+  diamond: boolean;
+  fret: number;
   t0: number;
   W0: number;
   Wd: number;
@@ -173,6 +175,8 @@ function useWheel() {
   const rotor = useRef<HTMLDivElement>(null);
   const ball = useRef<HTMLDivElement>(null);
   const shadow = useRef<HTMLDivElement>(null);
+  const cam = useRef<HTMLDivElement>(null);
+  const z = useRef({ zoom: 1, tx: 0, ty: 0 });
   const s = useRef({ W: 0, rel: 0, R: POCKET_R, visible: false, anim: null as Anim | null, roll: null as ReturnType<typeof rollLoop> | null, lastB: 0 });
 
   useEffect(() => {
@@ -208,8 +212,19 @@ function useWheel() {
               const hop = Math.floor(phase / Math.PI);
               if (hop !== a.bounce) {
                 a.bounce = hop;
-                sfx.bounce(Math.max(0.25, decay));
+                sfx.bounce(Math.max(0.2, decay * 0.8)); // lands between hops
               }
+            }
+            // every fret the ball crosses relative to the rotor clicks, louder while it is fast
+            const pocketNow = Math.floor((rel + STEP / 2) / STEP);
+            if (a.fret !== pocketNow) {
+              // only once the ball is down among the pockets
+              if (a.fret !== -9999 && k > 0.14) sfx.fret(Math.max(0.25, 1 - k * 0.7));
+              a.fret = pocketNow;
+            }
+            if (!a.diamond && k > 0.06) {
+              a.diamond = true;
+              sfx.diamond(); // hits a deflector as it leaves the track
             }
           }
           st.rel = rel;
@@ -221,6 +236,7 @@ function useWheel() {
             a.locked = true;
             st.roll?.stop();
             st.roll = null;
+            sfx.settle();
             a.onLock();
           }
         }
@@ -237,6 +253,18 @@ function useWheel() {
       if (rotor.current) rotor.current.style.transform = `rotate(${st.W}deg)`;
       const x = 50 + st.R * Math.sin(B);
       const y = 50 - st.R * Math.cos(B);
+      // TV close-up: the camera pushes in on the ball as it drops, holds on the pocket, then pulls back
+      {
+        const at = a ? (now - a.t0) / 1000 : 99;
+        const want = a && at > T_DROP - 0.4 && at < T_LOCK + 2.2 ? 1.55 : 1;
+        const zz = z.current;
+        zz.zoom += (want - zz.zoom) * (want > zz.zoom ? 0.045 : 0.06);
+        const k = (zz.zoom - 1) / 0.55; // 0‥1
+        const W = (cam.current?.firstElementChild as HTMLElement | null)?.offsetWidth ?? 360;
+        zz.tx += (((50 - x) / 100) * W * zz.zoom * k * 0.85 - zz.tx) * 0.12;
+        zz.ty += (((50 - y) / 100) * W * 0.64 * zz.zoom * k * 0.85 - zz.ty) * 0.12; // 0.64 ≈ cos(tilt): vertical is foreshortened
+        if (cam.current) cam.current.style.transform = `translate(${zz.tx.toFixed(1)}px, ${zz.ty.toFixed(1)}px) scale(${zz.zoom.toFixed(3)})`;
+      }
       if (ball.current) {
         ball.current.style.left = `${x}%`;
         ball.current.style.top = `${y}%`;
@@ -274,6 +302,8 @@ function useWheel() {
         R0: st.visible ? st.R : TRACK_R,
         locked: false,
         bounce: -1,
+        fret: -9999,
+        diamond: false,
         onLock: () => {
           sfx.clack();
           resolve();
@@ -285,11 +315,13 @@ function useWheel() {
       sfx.whoosh(0.4);
     });
 
-  return { rotor, ball, shadow, spin };
+  return { rotor, ball, shadow, cam, spin };
 }
 
 function Wheel({ w, spinning, win, lucky, thunder }: { w: ReturnType<typeof useWheel>; spinning: boolean; win: number | null; lucky: Map<number, number>; thunder: boolean }) {
   return (
+    <div className="rw3-view">
+      <div className="rw3-cam" ref={w.cam}>
     <div className={`rw3-scene ${spinning ? 'spinning' : ''} ${win != null && !spinning ? 'settled' : ''} ${thunder ? 'thunder' : ''}`}>
       <div className="rw3-tilt">
         <Layers n={7} cls="rw3-edge" gap={2.6} />
@@ -317,6 +349,8 @@ function Wheel({ w, spinning, win, lucky, thunder }: { w: ReturnType<typeof useW
         </div>
       </div>
       <div className="rw3-floor" />
+    </div>
+      </div>
     </div>
   );
 }

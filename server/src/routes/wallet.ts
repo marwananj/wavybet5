@@ -7,6 +7,7 @@ import { D, money, prisma } from '../lib/prisma';
 import { requireAuth } from '../middleware/auth';
 import { nowpayments } from '../services/nowpayments';
 import { applyBalanceChange } from '../services/wallet';
+import { assertNoBonusLock, grantFirstDepositBonus } from '../services/rewards';
 
 const r = Router();
 
@@ -27,6 +28,7 @@ async function assertCanTransact(userId: string) {
   const u = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   if (u.selfExcludedUntil && u.selfExcludedUntil > new Date())
     throw new HttpError(403, `You are self-excluded until ${u.selfExcludedUntil.toISOString().slice(0, 10)}`);
+  if (!u.emailVerified) throw new HttpError(403, 'Verify your e-mail first', 'EMAIL_UNVERIFIED');
   return u;
 }
 
@@ -205,6 +207,7 @@ async function handlePaymentUpdate(p: IpnPayment) {
       if (flipped.count !== 1) return;
       const u = await db.user.update({ where: { id: tx.userId }, data: { balance: { increment: credit } } });
       await db.transaction.update({ where: { id: tx.id }, data: { balanceAfter: u.balance } });
+      await grantFirstDepositBonus(db, tx.userId, credit);
     });
   } else if (['failed', 'expired', 'refunded'].includes(status)) {
     await prisma.transaction.updateMany({ where: { id: tx.id, status: 'PENDING' }, data: { status: status === 'expired' ? 'CANCELLED' : 'FAILED' } });
@@ -261,6 +264,7 @@ r.post(
       .parse(req.body);
     if (!coins().includes(body.currency)) throw new HttpError(400, 'Unsupported currency');
     await assertCanTransact(req.user!.id);
+    await assertNoBonusLock(req.user!.id);
     checkPaymentCode(req.user!.id, body.code);
 
     const open = await prisma.transaction.count({ where: { userId: req.user!.id, type: 'WITHDRAWAL', status: 'PENDING' } });

@@ -21,6 +21,7 @@ enum TxType {
   ADJUSTMENT
   CASINO_BET
   CASINO_WIN
+  BONUS
 }
 
 enum TxStatus {
@@ -35,6 +36,7 @@ enum BetStatus {
   WON
   LOST
   VOID
+  CASHOUT
 }
 
 enum EventStatus {
@@ -58,6 +60,19 @@ model User {
   selfExcludedUntil DateTime?
   dailyDepositLimit Decimal?       @db.Decimal(18, 2)
   lastLoginAt       DateTime?
+  /// e-mail verification (existing accounts default to verified; new sign-ups start false)
+  emailVerified     Boolean        @default(true)
+  verifyCodeHash    String?
+  verifyCodeExpires DateTime?
+  verifySentAt      DateTime?
+  verifyAttempts    Int            @default(0)
+  /// VIP: lifetime wagered amount and $20 reward chunks already claimed
+  wagered           Decimal        @default(0) @db.Decimal(18, 2)
+  rewardChunksClaimed Int          @default(0)
+  /// first-deposit gift + wagering still required before withdrawals
+  firstDepositBonusAt DateTime?
+  bonusWagerLeft    Decimal        @default(0) @db.Decimal(18, 2)
+  chatMutedUntil    DateTime?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   refreshTokens     RefreshToken[]
@@ -65,6 +80,7 @@ model User {
   bets              Bet[]
   fairSeeds         FairSeed[]
   casinoRounds      CasinoRound[]
+  chatMessages      ChatMessage[]
 }
 
 model RefreshToken {
@@ -192,10 +208,12 @@ model Bet {
   status          BetStatus      @default(OPEN)
   createdAt       DateTime       @default(now())
   settledAt       DateTime?
+  cashedOutAt     DateTime?
   selections      BetSelection[]
 
   @@index([userId, status, createdAt])
   @@index([status])
+  @@index([settledAt])
 }
 
 model BetSelection {
@@ -263,4 +281,22 @@ model CasinoRound {
   @@index([userId, game, status])
   @@index([userId, createdAt])
   @@index([createdAt])
+}
+
+/// Global chat room and private support threads (room = "global" | "support")
+model ChatMessage {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  room         String
+  /// support thread owner (the player); null for the global room
+  threadUserId String?
+  body         String
+  staff        Boolean  @default(false)
+  deleted      Boolean  @default(false)
+  readByStaff  Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([room, createdAt])
+  @@index([threadUserId, createdAt])
 }

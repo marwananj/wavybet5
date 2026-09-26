@@ -7,7 +7,10 @@ import { useAuth, useSlip, useToast } from '../lib/state';
 import { useGoalAlerts } from '../lib/goals';
 import type { Sport } from '../lib/types';
 import { Logo, SportIcon } from './ui';
-import { LuDices } from 'react-icons/lu';
+import { LuDices, LuMessageCircle, LuCrown, LuLightbulb, LuGift } from 'react-icons/lu';
+
+/** open the chat drawer from anywhere */
+export const openChat = (tab: 'chat' | 'support' = 'chat') => window.dispatchEvent(new CustomEvent('wb-chat', { detail: tab }));
 import { GAMES } from '../casino/meta';
 
 export function useSports() {
@@ -45,6 +48,9 @@ export function Header({ onMenu }: { onMenu: () => void }) {
         <button className="icon-btn" onClick={() => navigate('/search')} aria-label="Search">
           <LuSearch size={19} />
         </button>
+        <button className="icon-btn chat-toggle" onClick={() => openChat('chat')} aria-label="Open chat">
+          <LuMessageCircle size={19} />
+        </button>
         {user ? (
           <>
             <div className="balance-pill">
@@ -73,6 +79,9 @@ export function Header({ onMenu }: { onMenu: () => void }) {
                   </div>
                   <Link to="/bets" className="dropdown-item">
                     <LuTicket size={16} /> My bets
+                  </Link>
+                  <Link to="/vip" className="dropdown-item">
+                    <LuCrown size={16} /> VIP booster
                   </Link>
                   <Link to="/wallet?tab=history" className="dropdown-item">
                     <LuHistory size={16} /> Transactions
@@ -132,6 +141,18 @@ export function Sidebar({ collapsed, sports }: { collapsed: boolean; sports: Spo
           <LuTicket size={18} />
           <span>My bets</span>
         </Link>
+        <Link to="/tips" className={`side-item${path === '/tips' ? ' active' : ''}`} title="Tips of the day">
+          <LuLightbulb size={18} />
+          <span>Tips of the day</span>
+        </Link>
+        <Link to="/vip" className={`side-item vip-link${path === '/vip' ? ' active' : ''}`} title="VIP booster">
+          <LuCrown size={18} />
+          <span>VIP booster</span>
+        </Link>
+        <Link to="/promotions" className={`side-item${path === '/promotions' ? ' active' : ''}`} title="Promotions">
+          <LuGift size={18} />
+          <span>Promotions</span>
+        </Link>
       </div>
       <div className="side-label">Sports</div>
       <div className="side-section">
@@ -172,10 +193,14 @@ export function Sidebar({ collapsed, sports }: { collapsed: boolean; sports: Spo
           <LuStar size={18} />
           <span>Responsible gambling</span>
         </Link>
-        <a className="side-item" href="mailto:support@wavybet.com" title="Support">
+        <button type="button" className="side-item" onClick={() => openChat('support')} title="Live support">
           <LuHeadphones size={18} />
-          <span>Support</span>
-        </a>
+          <span>Live support</span>
+        </button>
+        <button type="button" className="side-item" onClick={() => openChat('chat')} title="Community chat">
+          <LuMessageCircle size={18} />
+          <span>Community chat</span>
+        </button>
       </div>
     </nav>
   );

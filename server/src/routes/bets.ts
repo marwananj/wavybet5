@@ -8,6 +8,7 @@ import { requireAuth } from '../middleware/auth';
 import { applyBalanceChange } from '../services/wallet';
 import { outcomeOpen } from '../services/live';
 import { BuilderError, priceBuilder, type Book } from '../services/builder';
+import { addWager } from '../services/rewards';
 
 const r = Router();
 const betLimiter = rateLimit({ windowMs: 60_000, limit: 40 });
@@ -30,6 +31,7 @@ r.post(
     const body = placeSchema.parse(req.body);
     const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
     if (user.selfExcludedUntil && user.selfExcludedUntil > new Date()) throw new HttpError(403, 'You are self-excluded');
+    if (!user.emailVerified) throw new HttpError(403, 'Verify your e-mail to start playing', 'EMAIL_UNVERIFIED');
 
     const ids = body.selections.map((s) => s.outcomeId);
     if (new Set(ids).size !== ids.length) throw new HttpError(400, 'Duplicate selection');
@@ -179,6 +181,7 @@ r.post(
     const b = builderSchema.extend({ stake: z.number().positive(), odds: z.number().positive() }).parse(req.body);
     const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
     if (user.selfExcludedUntil && user.selfExcludedUntil > new Date()) throw new HttpError(403, 'You are self-excluded');
+    if (!user.emailVerified) throw new HttpError(403, 'Verify your e-mail to start playing', 'EMAIL_UNVERIFIED');
     const q = await quoteBuilder(b.eventId, b.outcomeIds);
     if (q.price < b.odds) throw new HttpError(409, 'The Bet Builder price changed', 'ODDS_CHANGED', [{ outcomeId: 'builder', odds: q.price }]);
     const stake = money(b.stake);
@@ -212,14 +215,87 @@ r.post(
   })
 );
 
+/* ───────────────────────────── Cash out ─────────────────────────────
+ * Offer = stake × (odds of legs already won) × Π(original odds ÷ current odds) for legs still running,
+ * less CASHOUT_MARGIN. Current prices include the book's margin, so the offer is conservative.
+ * Every running leg must be open for betting right now; live legs go through the same in-play delay. */
+type CashBet = Prisma.BetGetPayload<{ include: { selections: true } }>;
+async function cashoutOffer(bet: CashBet) {
+  if (bet.status !== 'OPEN' || bet.type === 'BUILDER') return { available: false as const, reason: bet.type === 'BUILDER' ? 'Not available for Bet Builder' : 'Bet settled' };
+  const open = bet.selections.filter((s) => s.status === 'OPEN');
+  if (bet.selections.some((s) => s.status === 'LOST')) return { available: false as const, reason: 'A selection lost' };
+  if (!open.length) return { available: false as const, reason: 'Settling' };
+  const outcomes = await prisma.outcome.findMany({ where: { id: { in: open.map((s) => s.outcomeId) } }, include: { market: { include: { event: true } } } });
+  let factor = D(1);
+  for (const s of bet.selections) {
+    if (s.status === 'WON') factor = factor.mul(s.odds);
+    if (s.status !== 'OPEN') continue;
+    const o = outcomes.find((x) => x.id === s.outcomeId);
+    if (!o || !outcomeOpen(o)) return { available: false as const, reason: 'Suspended' };
+    factor = factor.mul(D(s.odds).div(o.price));
+  }
+  let offer = money(D(bet.stake).mul(factor).mul(1 - config.cashoutMargin));
+  if (offer.gt(bet.potentialPayout)) offer = D(bet.potentialPayout);
+  if (offer.lt(0.01)) return { available: false as const, reason: 'Too low' };
+  return { available: true as const, amount: offer, live: outcomes.some((o) => o.market.event.status === 'LIVE') };
+}
+
+r.post(
+  '/cashout/quotes',
+  requireAuth,
+  asyncH(async (req, res) => {
+    const bets = await prisma.bet.findMany({ where: { userId: req.user!.id, status: 'OPEN', type: { in: ['SINGLE', 'PARLAY'] } }, include: { selections: true }, take: 50 });
+    const quotes: Record<string, { available: boolean; amount?: string; reason?: string }> = {};
+    for (const b of bets) {
+      const q = await cashoutOffer(b);
+      quotes[b.id] = q.available ? { available: true, amount: String(q.amount) } : { available: false, reason: q.reason };
+    }
+    res.json({ quotes });
+  })
+);
+
+r.post(
+  '/:id/cashout',
+  requireAuth,
+  betLimiter,
+  asyncH(async (req, res) => {
+    const { amount } = z.object({ amount: z.number().positive() }).parse(req.body);
+    const load = () => prisma.bet.findFirst({ where: { id: req.params.id, userId: req.user!.id }, include: { selections: true } });
+    let bet = await load();
+    if (!bet) throw new HttpError(404, 'Bet not found');
+    let q = await cashoutOffer(bet);
+    if (!q.available) throw new HttpError(409, `Cash out unavailable: ${q.reason}`, 'CASHOUT_UNAVAILABLE');
+    if (q.live && config.liveBetDelayMs > 0) {
+      await new Promise((r2) => setTimeout(r2, config.liveBetDelayMs));
+      bet = (await load())!;
+      q = await cashoutOffer(bet);
+      if (!q.available) throw new HttpError(409, `Cash out unavailable: ${q.reason}`, 'CASHOUT_UNAVAILABLE');
+    }
+    // the offer may move; accept if it didn't drop more than 2%
+    if (q.amount.lt(money(amount * 0.98))) throw new HttpError(409, 'Cash out value changed', 'CASHOUT_CHANGED', { amount: String(q.amount) });
+    const pay = q.amount;
+    const betId = bet.id;
+    const userId = bet.userId;
+    const stake = bet.stake;
+    await prisma.$transaction(async (db) => {
+      const flipped = await db.bet.updateMany({ where: { id: betId, status: 'OPEN' }, data: { status: 'CASHOUT', payout: pay, settledAt: new Date(), cashedOutAt: new Date() } });
+      if (flipped.count !== 1) throw new HttpError(409, 'Bet already settled');
+      await addWager(db, userId, D(stake));
+      await applyBalanceChange(db, { userId, amount: pay, type: 'BET_PAYOUT', betId, note: `Cash out` });
+    });
+    const balance = (await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { balance: true } })).balance;
+    res.json({ ok: true, amount: String(pay), balance: String(balance) });
+  })
+);
+
 function serializeBet(b: {
   id: string; type: string; stake: unknown; totalOdds: unknown; potentialPayout: unknown; payout: unknown; status: string;
-  createdAt: Date; settledAt: Date | null;
+  createdAt: Date; settledAt: Date | null; cashedOutAt?: Date | null;
   selections: { id: string; eventId: string; marketKey: string; outcomeName: string; odds: unknown; status: string; eventLabel: string; sportTitle: string; commenceTime: Date; early?: boolean; point?: unknown }[];
 }) {
   return {
     id: b.id, type: b.type, stake: String(b.stake), totalOdds: String(b.totalOdds), potentialPayout: String(b.potentialPayout),
-    payout: b.payout == null ? null : String(b.payout), status: b.status, createdAt: b.createdAt, settledAt: b.settledAt,
+    payout: b.payout == null ? null : String(b.payout), status: b.status, createdAt: b.createdAt, settledAt: b.settledAt, cashedOutAt: b.cashedOutAt ?? null,
     selections: b.selections.map((s) => ({
       id: s.id, eventId: s.eventId, marketKey: s.marketKey, outcomeName: s.outcomeName, odds: String(s.odds), status: s.status,
       eventLabel: s.eventLabel, sportTitle: s.sportTitle, commenceTime: s.commenceTime, early: !!s.early,
@@ -231,10 +307,11 @@ r.get(
   '/',
   requireAuth,
   asyncH(async (req, res) => {
-    const q = z.object({ status: z.enum(['open', 'settled', 'won', 'lost', 'all']).default('all'), cursor: z.string().optional() }).parse(req.query);
+    const q = z.object({ status: z.enum(['open', 'settled', 'won', 'lost', 'cashout', 'all']).default('all'), cursor: z.string().optional() }).parse(req.query);
     const where =
       q.status === 'open' ? { status: 'OPEN' as const }
-      : q.status === 'settled' ? { status: { in: ['WON', 'LOST', 'VOID'] as ('WON' | 'LOST' | 'VOID')[] } }
+      : q.status === 'settled' ? { status: { in: ['WON', 'LOST', 'VOID', 'CASHOUT'] as ('WON' | 'LOST' | 'VOID' | 'CASHOUT')[] } }
+      : q.status === 'cashout' ? { status: 'CASHOUT' as const }
       : q.status === 'won' ? { status: 'WON' as const }
       : q.status === 'lost' ? { status: 'LOST' as const }
       : {};

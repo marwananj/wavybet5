@@ -2,6 +2,7 @@ import { BetStatus } from '@prisma/client';
 import { config } from '../config';
 import { D, money, prisma } from '../lib/prisma';
 import { applyBalanceChange } from './wallet';
+import { addWager } from './rewards';
 
 interface Final {
   homeScore: number;
@@ -147,6 +148,7 @@ export async function evaluateBets(betIds: string[]) {
         data: { status: final!, payout, settledAt: new Date() },
       });
       if (flipped.count !== 1) return;
+      if (final !== 'VOID') await addWager(db, bet.userId, D(bet.stake)); // VIP + bonus wagering
       if (payout.gt(0)) {
         await applyBalanceChange(db, {
           userId: bet.userId,

@@ -23,8 +23,8 @@ export const config = {
 
   // Betting limits
   minStake: num('MIN_STAKE', 0.5),
-  maxStake: num('MAX_STAKE', 5000),
-  maxPayout: num('MAX_PAYOUT', 50000),
+  maxStake: num('MAX_STAKE', 3000),
+  maxPayout: num('MAX_PAYOUT', 200000),
   maxParlayLegs: num('MAX_PARLAY_LEGS', 15),
   houseMargin: num('HOUSE_MARGIN', 0.05),
 
@@ -71,6 +71,24 @@ export const config = {
   /** match tracker cache (ms) — one API call per watched live match per interval */
   trackerCacheMs: num('TRACKER_CACHE_MS', 15000),
 
+  /** EmailJS (server-side REST) for sign-up verification codes */
+  emailjs: {
+    serviceId: process.env.EMAILJS_SERVICE_ID ?? '',
+    templateId: process.env.EMAILJS_TEMPLATE_ID ?? '',
+    publicKey: process.env.EMAILJS_PUBLIC_KEY ?? '',
+    privateKey: process.env.EMAILJS_PRIVATE_KEY ?? '',
+  },
+
+  /** VIP booster: every WAGER_REWARD_STEP wagered pays WAGER_REWARD_AMOUNT */
+  wagerRewardStep: num('WAGER_REWARD_STEP', 5000),
+  wagerRewardAmount: num('WAGER_REWARD_AMOUNT', 20),
+  /** first deposit gift (paid once, deposit ≥ FIRST_DEPOSIT_MIN); must be wagered ×N before withdrawing */
+  firstDepositBonus: num('FIRST_DEPOSIT_BONUS', 25),
+  firstDepositMin: num('FIRST_DEPOSIT_MIN', 20),
+  firstDepositWagerX: num('FIRST_DEPOSIT_WAGER_X', 10),
+  /** cash out: margin kept on the fair cash-out value */
+  cashoutMargin: num('CASHOUT_MARGIN', 0.05),
+
   // The Odds API
   oddsApiKey: process.env.ODDS_API_KEY ?? '',
   oddsApiBase: process.env.ODDS_API_BASE ?? 'https://api.the-odds-api.com/v4',
@@ -106,8 +124,8 @@ export const config = {
   // Wavy Originals (casino)
   casinoEnabled: (process.env.CASINO_ENABLED ?? 'true') === 'true',
   casinoMinStake: num('CASINO_MIN_STAKE', 0.1),
-  casinoMaxStake: num('CASINO_MAX_STAKE', 1000),
-  casinoMaxPayout: num('CASINO_MAX_PAYOUT', 20000),
+  casinoMaxStake: num('CASINO_MAX_STAKE', 3000),
+  casinoMaxPayout: num('CASINO_MAX_PAYOUT', 200000),
 
   // NOWPayments
   npApiKey: process.env.NOWPAYMENTS_API_KEY ?? '',

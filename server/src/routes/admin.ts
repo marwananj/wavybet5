@@ -12,6 +12,7 @@ import { applyBalanceChange } from '../services/wallet';
 import { refundWithdrawal } from './wallet';
 import { publicUser } from './auth';
 import { invalidateMarkets, seenBetTypes } from '../services/markets';
+import { grantFirstDepositBonus } from '../services/rewards';
 
 const r = Router();
 r.use(requireAuth, requireAdmin);
@@ -130,6 +131,7 @@ r.post(
       if (flipped.count !== 1) throw new HttpError(409, 'Already processed');
       const u = await db.user.update({ where: { id: tx.userId }, data: { balance: { increment: credit } } });
       await db.transaction.update({ where: { id: tx.id }, data: { balanceAfter: u.balance } });
+      await grantFirstDepositBonus(db, tx.userId, credit);
     });
     res.json({ ok: true, credited: String(credit) });
   })

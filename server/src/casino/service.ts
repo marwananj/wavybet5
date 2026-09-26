@@ -3,6 +3,7 @@ import { config } from '../config';
 import { HttpError } from '../lib/http';
 import { D, money, prisma } from '../lib/prisma';
 import { applyBalanceChange } from '../services/wallet';
+import { addWager } from '../services/rewards';
 import { makeRng, newClientSeed, newServerSeed, sha256, type Rng } from './fair';
 import { GameError, type InstantResult } from './engine/instant';
 
@@ -58,8 +59,9 @@ export async function rotateSeed(userId: string, clientSeed?: string) {
 
 export async function assertCanPlay(userId: string) {
   if (!config.casinoEnabled) throw new HttpError(503, 'Casino is temporarily closed');
-  const u = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { selfExcludedUntil: true } });
+  const u = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { selfExcludedUntil: true, emailVerified: true } });
   if (u.selfExcludedUntil && u.selfExcludedUntil > new Date()) throw new HttpError(403, 'You are self-excluded');
+  if (!u.emailVerified) throw new HttpError(403, 'Verify your e-mail to start playing', 'EMAIL_UNVERIFIED');
 }
 
 export function checkStake(stake: number) {
@@ -120,6 +122,7 @@ export async function playInstant(
   return prisma.$transaction(async (db) => {
     const { seed, nonce, rng } = await takeNonce(db, userId);
     await applyBalanceChange(db, { userId, amount: stake.negated(), type: 'CASINO_BET', note: GAME_NAMES[game] });
+    await addWager(db, userId, stake);
     const r = wrapGameErrors(() => play(rng, { clientSeed: seed.clientSeed, nonce }));
     const payout = cap(r.payout != null ? money(r.payout) : money(stake.mul(r.multiplier)));
     const round = await db.casinoRound.create({
@@ -199,6 +202,7 @@ export async function startStateful<S, P>(userId: string, game: string, def: Sta
       await applyBalanceChange(db, { userId, amount: extra.negated(), type: 'CASINO_BET', note: `${GAME_NAMES[game]} side bet` });
       stakeTotal = stakeTotal.add(extra);
     }
+    await addWager(db, userId, stakeTotal);
     const g = wrapGameErrors(() => def.start(params, rng));
     const st: Stored<S> = { base: String(stake), game: g };
     const fin = await finishIfDone(db, userId, game, def, st, stakeTotal);
@@ -230,6 +234,7 @@ export async function actStateful<S>(
     if (extraStake > 0) {
       const extra = money(D(st.base).mul(extraStake));
       await applyBalanceChange(db, { userId, amount: extra.negated(), type: 'CASINO_BET', note: `${GAME_NAMES[game]} ${action}` });
+      await addWager(db, userId, extra);
       stakeTotal = stakeTotal.add(extra);
     }
     const fin = await finishIfDone(db, userId, game, def, st, stakeTotal);

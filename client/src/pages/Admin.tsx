@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../lib/api';
+import { subscribeNamed } from '../lib/live';
 import { dateTime, usd } from '../lib/format';
 import { useRouter } from '../lib/router';
 import { useAuth, useToast } from '../lib/state';
@@ -429,6 +430,254 @@ function Sports() {
   );
 }
 
+interface FeedType {
+  name: string;
+  source: 'prematch' | 'live';
+  mapped: string | null;
+  sample: string;
+  count: number;
+}
+/** Every bet name the odds feeds have sent since the server started, and the market it maps to. */
+function FeedMarkets() {
+  const [rows, setRows] = useState<FeedType[] | null>(null);
+  const [only, setOnly] = useState<'all' | 'mapped' | 'unmapped'>('all');
+  useEffect(() => {
+    api<{ types: FeedType[] }>('/admin/feed-bet-types').then((d) => setRows(d.types)).catch(() => setRows([]));
+  }, []);
+  const list = (rows ?? []).filter((r) => (only === 'all' ? true : only === 'mapped' ? !!r.mapped : !r.mapped));
+  return (
+    <>
+      <p className="muted">
+        Bet types received from API-Football since the last server restart. <b>Mapped</b> ones are offered on the site. If a market you expect is
+        unmapped, send its exact name to your developer.
+      </p>
+      <div className="seg seg-sm" style={{ maxWidth: 360, marginBottom: 12 }}>
+        {(['all', 'mapped', 'unmapped'] as const).map((k) => (
+          <button key={k} className={only === k ? 'on' : ''} onClick={() => setOnly(k)}>
+            {k}
+          </button>
+        ))}
+      </div>
+      {rows === null ? (
+        <Skeleton h={40} count={6} />
+      ) : !list.length ? (
+        <Empty title="Nothing yet" text="The list fills as the odds jobs run (pre-match every 30 min, live every few seconds)." />
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Feed</th>
+                <th>Bet name</th>
+                <th>Our market</th>
+                <th>Sample values</th>
+                <th>Seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((r) => (
+                <tr key={`${r.source}:${r.name}`}>
+                  <td>{r.source}</td>
+                  <td><b>{r.name}</b></td>
+                  <td>{r.mapped ?? <span className="muted">not used</span>}</td>
+                  <td className="muted">{r.sample}</td>
+                  <td>{r.count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+interface Thread {
+  userId: string;
+  username: string;
+  email: string;
+  balance: string;
+  last: string;
+  lastStaff: boolean;
+  at: string;
+  unread: number;
+}
+interface SMsg {
+  id: string;
+  body: string;
+  staff: boolean;
+  user: string;
+  at: string;
+}
+/** Customer support inbox: one thread per player, replies appear live in their chat window. */
+function SupportInbox() {
+  const toast = useToast();
+  const [threads, setThreads] = useState<Thread[] | null>(null);
+  const [sel, setSel] = useState<Thread | null>(null);
+  const [msgs, setMsgs] = useState<SMsg[]>([]);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const loadThreads = () => api<{ threads: Thread[] }>('/chat/admin/threads').then((d) => setThreads(d.threads)).catch(() => setThreads([]));
+  const open = (t: Thread) => {
+    setSel(t);
+    api<{ messages: SMsg[] }>(`/chat/admin/threads/${t.userId}`).then((d) => setMsgs(d.messages));
+  };
+  useEffect(() => {
+    loadThreads();
+    const off = subscribeNamed('support', (d: { threadUserId: string }) => {
+      loadThreads();
+      setSel((cur) => {
+        if (cur && cur.userId === d.threadUserId) api<{ messages: SMsg[] }>(`/chat/admin/threads/${cur.userId}`).then((x) => setMsgs(x.messages));
+        return cur;
+      });
+    });
+    const t = setInterval(loadThreads, 20_000);
+    return () => {
+      off();
+      clearInterval(t);
+    };
+  }, []);
+  const reply = async () => {
+    if (!sel || !text.trim()) return;
+    setBusy(true);
+    try {
+      const d = await api<{ messages: SMsg[] }>(`/chat/admin/threads/${sel.userId}`, { body: { body: text.trim() } });
+      setMsgs(d.messages);
+      setText('');
+      loadThreads();
+    } catch (e) {
+      toast('err', (e as ApiError).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="inbox">
+      <div className="inbox-list">
+        {threads === null ? (
+          <Skeleton h={54} count={4} />
+        ) : !threads.length ? (
+          <Empty title="No conversations yet" text="Players open support from the chat button." />
+        ) : (
+          threads.map((t) => (
+            <button key={t.userId} className={`inbox-item ${sel?.userId === t.userId ? 'on' : ''}`} onClick={() => open(t)}>
+              <b>
+                {t.username}
+                {t.unread > 0 && <em>{t.unread}</em>}
+              </b>
+              <small className="ellipsis">
+                {t.lastStaff ? 'You: ' : ''}
+                {t.last}
+              </small>
+              <small className="muted">{dateTime(t.at)}</small>
+            </button>
+          ))
+        )}
+      </div>
+      <div className="inbox-thread">
+        {!sel ? (
+          <Empty title="Select a conversation" />
+        ) : (
+          <>
+            <div className="inbox-who">
+              <b>{sel.username}</b>
+              <small>
+                {sel.email} · balance {usd(sel.balance)}
+              </small>
+            </div>
+            <div className="chat-list">
+              {msgs.map((m) => (
+                <div key={m.id} className={`chat-msg ${m.staff ? 'me' : 'staff-view'}`}>
+                  <span className="chat-user">{m.staff ? 'Support' : m.user}</span>
+                  <p>{m.body}</p>
+                  <small>{dateTime(m.at)}</small>
+                </div>
+              ))}
+            </div>
+            <div className="chat-input">
+              <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Reply to the player…" onKeyDown={(e) => e.key === 'Enter' && reply()} />
+              <button className="btn btn-primary" disabled={busy || !text.trim()} onClick={reply}>
+                {busy ? <Spinner /> : 'Send'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface CMsg {
+  id: string;
+  user: string;
+  body: string;
+  at: string;
+  staff: boolean;
+}
+/** Global chat moderation: delete messages, mute players. */
+function ChatModeration() {
+  const toast = useToast();
+  const [msgs, setMsgs] = useState<CMsg[]>([]);
+  const [mute, setMute] = useState({ username: '', minutes: '60' });
+  const load = () => api<{ messages: CMsg[] }>('/chat/global').then((d) => setMsgs(d.messages.slice().reverse()));
+  useEffect(() => {
+    load();
+    return subscribeNamed('chat', () => load());
+  }, []);
+  const del = async (id: string) => {
+    await api(`/chat/admin/delete/${id}`, { method: 'POST' });
+    load();
+  };
+  const doMute = async () => {
+    try {
+      await api('/chat/admin/mute', { body: { username: mute.username, minutes: Number(mute.minutes) || 0 } });
+      toast('ok', Number(mute.minutes) ? `${mute.username} muted` : `${mute.username} unmuted`);
+    } catch (e) {
+      toast('err', (e as ApiError).message);
+    }
+  };
+  return (
+    <>
+      <div className="field-row" style={{ alignItems: 'end', marginBottom: 12 }}>
+        <label className="field">
+          <span>Username</span>
+          <input value={mute.username} onChange={(e) => setMute({ ...mute, username: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>Mute minutes (0 = unmute)</span>
+          <input value={mute.minutes} onChange={(e) => setMute({ ...mute, minutes: e.target.value.replace(/\D/g, '') })} />
+        </label>
+        <button className="btn btn-ghost" onClick={doMute} disabled={!mute.username}>
+          Apply
+        </button>
+      </div>
+      <div className="table-wrap">
+        <table className="table">
+          <tbody>
+            {msgs.map((m) => (
+              <tr key={m.id}>
+                <td className="muted">{dateTime(m.at)}</td>
+                <td>
+                  <b>{m.user}</b>
+                </td>
+                <td>{m.body}</td>
+                <td>
+                  <button className="btn btn-ghost btn-sm" onClick={() => del(m.id)}>
+                    Delete
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setMute({ ...mute, username: m.user })}>
+                    Mute…
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 export function AdminPage() {
   const { user, ready } = useAuth();
   const { search, navigate } = useRouter();
@@ -439,7 +688,7 @@ export function AdminPage() {
     <div className="page">
       <BackBar title="Admin" />
       <div className="seg seg-scroll">
-        {['dashboard', 'deposits', 'withdrawals', 'users', 'events', 'sports'].map((t) => (
+        {['dashboard', 'deposits', 'withdrawals', 'users', 'support', 'chat', 'events', 'sports', 'markets'].map((t) => (
           <button key={t} className={tab === t ? 'on' : ''} onClick={() => navigate(`/admin?tab=${t}`, true)}>{t}</button>
         ))}
       </div>
@@ -450,6 +699,9 @@ export function AdminPage() {
         {tab === 'users' && <Users />}
         {tab === 'events' && <Events />}
         {tab === 'sports' && <Sports />}
+        {tab === 'markets' && <FeedMarkets />}
+        {tab === 'support' && <SupportInbox />}
+        {tab === 'chat' && <ChatModeration />}
       </div>
     </div>
   );

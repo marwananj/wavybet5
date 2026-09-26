@@ -7,6 +7,7 @@ import { useAuth, useToast } from '../lib/state';
 import { Modal, Spinner } from '../components/ui';
 import { casino, loadCasinoConfig, mult, RANKS, SUITS, type Card, type CasinoConfig, type Round } from './api';
 import { GAMES } from './meta';
+import { BetFeed } from '../components/BetFeed';
 import { sfx, useMuted } from './sound';
 
 /* ------------------------------ hooks ------------------------------- */
@@ -42,6 +43,7 @@ export function useBet() {
     },
     setBalance,
     fail(e: unknown) {
+      if ((e as ApiError).code === 'EMAIL_UNVERIFIED') openAuth('verify');
       toast('err', (e as ApiError).message ?? 'Something went wrong');
       reloadUser().catch(() => {}); // undo the optimistic debit
     },
@@ -118,10 +120,22 @@ export function GameShell({
         <aside className="game-controls">{controls}</aside>
         <section className="game-stage">{stage}</section>
       </div>
+      <LimitsNote />
       <RecentRounds game={game} refreshKey={refreshKey} />
+      <BetFeed title="Live casino bets" />
       <OtherGames current={game} />
       {fair && <FairnessModal onClose={() => setFair(false)} />}
     </div>
+  );
+}
+
+function LimitsNote() {
+  const cfg = useCasinoConfig();
+  if (!cfg) return null;
+  return (
+    <p className="limits-note">
+      Max bet {usd(cfg.maxStake)} · Max payout per bet {usd(cfg.maxPayout)} · Provably fair
+    </p>
   );
 }
 

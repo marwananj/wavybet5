@@ -7,18 +7,20 @@ import { useAuth } from '../lib/state';
 import type { Bet } from '../lib/types';
 import { BackBar } from '../components/Layout';
 import { Empty, Skeleton, Spinner } from '../components/ui';
+import { CashoutButton, useCashoutQuotes, type Quote } from '../components/Cashout';
 
 const TABS = [
   ['open', 'Open'],
   ['won', 'Won'],
   ['lost', 'Lost'],
+  ['cashout', 'Cashed out'],
   ['settled', 'Settled'],
   ['all', 'All'],
 ] as const;
 
-const STATUS_LABEL: Record<string, string> = { OPEN: 'Open', WON: 'Won', LOST: 'Lost', VOID: 'Void' };
+const STATUS_LABEL: Record<string, string> = { OPEN: 'Open', WON: 'Won', LOST: 'Lost', VOID: 'Void', CASHOUT: 'Cashed out' };
 
-function BetCard({ b }: { b: Bet }) {
+function BetCard({ b, quote, onCashout }: { b: Bet; quote?: Quote; onCashout?: () => void }) {
   return (
     <article className={`bet-card st-${b.status.toLowerCase()}`}>
       <header className="bet-head">
@@ -61,9 +63,14 @@ function BetCard({ b }: { b: Bet }) {
         </div>
         <div>
           <small>{b.status === 'OPEN' ? 'To win' : 'Payout'}</small>
-          <b className={b.status === 'WON' ? 'win' : b.status === 'LOST' ? 'loss' : ''}>{usd(b.status === 'OPEN' ? b.potentialPayout : b.payout ?? 0)}</b>
+          <b className={b.status === 'WON' || b.status === 'CASHOUT' ? 'win' : b.status === 'LOST' ? 'loss' : ''}>{usd(b.status === 'OPEN' ? b.potentialPayout : b.payout ?? 0)}</b>
         </div>
       </footer>
+      {b.status === 'OPEN' && b.type !== 'BUILDER' && quote && (
+        <div className="bet-cashout">
+          <CashoutButton bet={b} quote={quote} onDone={() => onCashout?.()} />
+        </div>
+      )}
     </article>
   );
 }
@@ -76,16 +83,18 @@ export function BetsPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [more, setMore] = useState(false);
   const [stats, setStats] = useState<{ status: string; count: number; stake: string; payout: string }[]>([]);
+  const [reloadKey, setReloadKey] = useState(0);
+  const { quotes, reload } = useCashoutQuotes(!!user && (tab === 'open' || tab === 'all'));
 
   useEffect(() => {
     if (!user) return;
-    setBets(null);
+    setBets((b) => (reloadKey ? b : null));
     api<{ bets: Bet[]; nextCursor: string | null; stats: typeof stats }>(`/bets?status=${tab}`).then((d) => {
       setBets(d.bets);
       setCursor(d.nextCursor);
       setStats(d.stats);
     });
-  }, [tab, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tab, user?.id, reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadMore = async () => {
     if (!cursor) return;
@@ -145,7 +154,17 @@ export function BetsPage() {
         ) : bets.length === 0 ? (
           <Empty icon={<LuTicket size={34} />} title={tab === 'open' ? 'No open bets' : 'Nothing here yet'} action={<Link to="/" className="btn btn-primary">Browse matches</Link>} />
         ) : (
-          bets.map((b) => <BetCard key={b.id} b={b} />)
+          bets.map((b) => (
+            <BetCard
+              key={b.id}
+              b={b}
+              quote={quotes[b.id]}
+              onCashout={() => {
+                setReloadKey((k) => k + 1);
+                reload();
+              }}
+            />
+          ))
         )}
       </div>
       {cursor && (

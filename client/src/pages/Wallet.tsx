@@ -8,6 +8,7 @@ import { useAuth, useToast } from '../lib/state';
 import type { Tx } from '../lib/types';
 import { BackBar } from '../components/Layout';
 import { Empty, Skeleton, Spinner } from '../components/ui';
+import { FirstDepositPoster } from '../components/FirstDepositPromo';
 
 interface Currency {
   code: string;
@@ -387,6 +388,7 @@ const TX_LABEL: Record<Tx['type'], string> = {
   ADJUSTMENT: 'Adjustment',
   CASINO_BET: 'Casino bet',
   CASINO_WIN: 'Casino win',
+  BONUS: 'Bonus 🎁',
 };
 
 function HistoryTab() {
@@ -502,7 +504,13 @@ export function WalletPage() {
       <div className="wallet-card">
         <small>Balance</small>
         <b>{usd(user?.balance)}</b>
+        {Number(user?.bonusWagerLeft ?? 0) > 0 && (
+          <span className="bonus-lock">
+            🎁 Wager {usd(user?.bonusWagerLeft)} more to unlock withdrawals (first deposit gift)
+          </span>
+        )}
       </div>
+      {tab === 'deposit' && !user?.firstDepositBonusClaimed && <FirstDepositPoster compact />}
       <div className="seg">
         {[
           ['deposit', 'Deposit'],
@@ -514,7 +522,13 @@ export function WalletPage() {
           </button>
         ))}
       </div>
-      <div className="panel">{tab === 'deposit' ? <DepositTab /> : tab === 'withdraw' ? <WithdrawTab /> : <HistoryTab />}</div>
+      {user?.emailVerified === false ? (
+        <div className="panel">
+          <Empty title="Verify your e-mail first" text="Deposits and withdrawals unlock once your e-mail is confirmed." action={<button className="btn btn-primary" onClick={() => openAuth('verify')}>Enter code</button>} />
+        </div>
+      ) : (
+        <div className="panel">{tab === 'deposit' ? <DepositTab /> : tab === 'withdraw' ? <WithdrawTab /> : <HistoryTab />}</div>
+      )}
     </div>
   );
 }
