@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { LuRadio } from 'react-icons/lu';
+import { LuRadio, LuStar } from 'react-icons/lu';
+import { useFavs } from '../lib/favs';
 import { onGoal } from '../lib/goals';
 import { Link } from '../lib/router';
 import { kickoff, leagueParts } from '../lib/format';
@@ -32,6 +33,27 @@ function LiveOrTime({ ev }: { ev: SportEvent }) {
   return <span className="ev-time">{kickoff(ev.commenceTime)}</span>;
 }
 
+/** ☆ star a match: goal alerts + "My matches" */
+export function FavStar({ id, size = 15 }: { id: string; size?: number }) {
+  const favs = useFavs('events');
+  const on = favs.has(id);
+  return (
+    <button
+      type="button"
+      className={`fav-star${on ? ' on' : ''}`}
+      aria-label={on ? 'Remove from my matches' : 'Add to my matches'}
+      aria-pressed={on}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        favs.toggle(id);
+      }}
+    >
+      <LuStar size={size} />
+    </button>
+  );
+}
+
 /** Big featured card for the lobby carousel */
 export function FeaturedCard({ ev }: { ev: SportEvent }) {
   const { groupTitle } = leagueParts(ev.sportKey, ev.sportTitle);
@@ -43,7 +65,10 @@ export function FeaturedCard({ ev }: { ev: SportEvent }) {
           <SportIcon sportKey={ev.sportKey} size={14} />
           <span className="ellipsis">{ev.sportKey.startsWith('soccer_af_') ? ev.sportTitle : `${groupTitle} · ${ev.sportTitle}`}</span>
         </span>
-        <LiveOrTime ev={ev} />
+        <span className="feat-right">
+          <LiveOrTime ev={ev} />
+          <FavStar id={ev.id} />
+        </span>
       </div>
       <div className="feat-teams">
         <div className="feat-team">
@@ -96,6 +121,7 @@ export function EventCard({ ev }: { ev: SportEvent }) {
       </div>
       <div className="ev-meta">
         <LiveOrTime ev={ev} />
+        <FavStar id={ev.id} />
       </div>
       <div className="ev-teams">
         <div className="ev-team">

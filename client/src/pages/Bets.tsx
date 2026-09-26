@@ -32,6 +32,11 @@ function BetCard({ b, quote, onCashout }: { b: Bet; quote?: Quote; onCashout?: (
         </div>
         <span className={`status-pill st-${b.status.toLowerCase()}`}>{STATUS_LABEL[b.status]}</span>
       </header>
+      {b.insured && (
+        <div className={`ins-tag ${b.insurancePaid ? 'paid' : ''}`}>
+          🛡️ {b.insurancePaid ? `Acca Insurance paid ${usd(b.insurancePaid)} — lost by one leg` : 'Acca Insurance · stake back as bonus if just one leg loses'}
+        </div>
+      )}
       <ul className="bet-legs">
         {b.selections.map((s) => (
           <li key={s.id} className={`leg st-${s.status.toLowerCase()}`}>
@@ -141,6 +146,9 @@ export function BetsPage() {
           <b className={totalPayout - settledStake >= 0 ? 'win' : 'loss'}>{usd(totalPayout - settledStake)}</b>
         </div>
       </div>
+      <Link to="/stats" className="stats-link">
+        📈 See my full stats — profit chart, ROI, win rate by sport
+      </Link>
       <div className="seg seg-scroll">
         {TABS.map(([k, l]) => (
           <button key={k} className={tab === k ? 'on' : ''} onClick={() => navigate(`/bets?tab=${k}`, true)}>

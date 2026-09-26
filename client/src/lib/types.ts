@@ -12,6 +12,9 @@ export interface User {
   emailVerified?: boolean;
   bonusWagerLeft?: string;
   firstDepositBonusClaimed?: boolean;
+  hideInFeed?: boolean;
+  oddsFormat?: 'decimal' | 'fractional' | 'american';
+  tier?: string;
 }
 
 export interface Outcome {
@@ -84,6 +87,8 @@ export interface Bet {
   createdAt: string;
   settledAt: string | null;
   cashedOutAt?: string | null;
+  insured?: boolean;
+  insurancePaid?: string | null;
   selections: BetSel[];
 }
 

@@ -168,6 +168,27 @@ export const sfx = {
     burst({ freq: 2800, q: 5, dur: 0.03, vol: 0.2, delay: 0.16 });
     burst({ freq: 3000, q: 6, dur: 0.02, vol: 0.1, delay: 0.27 });
   },
+  /** slot reel landing */
+  reelStop: (i = 0) => {
+    burst({ freq: 260, q: 0.7, dur: 0.09, vol: 0.45, type: 'lowpass' });
+    tone({ freq: 180 - i * 8, to: 110, type: 'triangle', dur: 0.08, vol: 0.18 });
+    burst({ freq: 3200, q: 4, dur: 0.02, vol: 0.12, delay: 0.01 });
+  },
+  /** scatter symbol lands */
+  scatter: (n = 1) => arp([880 * 2 ** ((n - 1) / 6), 1320 * 2 ** ((n - 1) / 6), 1760 * 2 ** ((n - 1) / 6)], 0.05, { dur: 0.25, vol: 0.14, type: 'sine' }),
+  /** anticipation build-up before the last reels */
+  anticipate: () => tone({ freq: 300, to: 900, type: 'sawtooth', dur: 1.1, vol: 0.05 }),
+  /** reels start */
+  reelStart: () => {
+    for (let i = 0; i < 5; i++) burst({ freq: 1800 + i * 150, q: 3, dur: 0.03, vol: 0.1, delay: i * 0.04 });
+  },
+  /** a line win counting up */
+  lineWin: () => arp([1047, 1319], 0.06, { dur: 0.12, vol: 0.1, type: 'square' }),
+  /** free spins trigger fanfare */
+  fanfare: () => {
+    arp([523, 659, 784, 1047, 784, 1047, 1319], 0.09, { vol: 0.2 });
+    arp([262, 330, 392, 523], 0.18, { vol: 0.12, type: 'triangle', delay: 0.1 });
+  },
   /** riffle shuffle of a deck */
   riffle: (delay = 0) => {
     for (let i = 0; i < 26; i++) burst({ freq: 2600 + Math.random() * 1800, q: 4, dur: 0.018, vol: 0.12 + Math.random() * 0.08, delay: delay + i * 0.022 });
@@ -420,4 +441,67 @@ export function resultSound(multiplier: number) {
   else if (multiplier > 1) sfx.win();
   else if (multiplier === 1) sfx.coin();
   else sfx.lose();
+}
+
+/**
+ * Burning fuse: hissing sparks (high band-passed noise with random crackle) + a heartbeat
+ * tick that speeds up with the tension. `set(tension 0‥1)` every frame, `stop()` at the end.
+ */
+export function fuseLoop() {
+  const c = ac();
+  if (!c || !master) return { set: (_t: number) => {}, stop: () => {} };
+  const out = master;
+  const n = c.createBufferSource();
+  n.buffer = noise(c);
+  n.loop = true;
+  const f = c.createBiquadFilter();
+  f.type = 'bandpass';
+  f.frequency.value = 5200;
+  f.Q.value = 1.4;
+  const g = c.createGain();
+  g.gain.value = 0.0001;
+  n.connect(f);
+  f.connect(g);
+  g.connect(out);
+  n.start(0, Math.random());
+  let stopped = false;
+  let tension = 0;
+  let nextTick = c.currentTime + 0.3;
+  const timer = window.setInterval(() => {
+    if (stopped) return;
+    const t = c.currentTime;
+    // crackle
+    if (Math.random() < 0.55) burst({ freq: 3500 + Math.random() * 4000, q: 5, dur: 0.012 + Math.random() * 0.02, vol: 0.05 + tension * 0.12 });
+    // heartbeat tick, faster as the multiplier climbs
+    if (t >= nextTick) {
+      tone({ freq: 880 + tension * 500, type: 'square', dur: 0.03, vol: 0.035 + tension * 0.05 });
+      nextTick = t + Math.max(0.16, 0.8 - tension * 0.64);
+    }
+  }, 45);
+  return {
+    set(x: number) {
+      if (stopped) return;
+      tension = Math.max(0, Math.min(1, x));
+      const t = c.currentTime;
+      g.gain.setTargetAtTime(0.03 + tension * 0.09, t, 0.1);
+      f.frequency.setTargetAtTime(4200 + tension * 2800, t, 0.2);
+    },
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      window.clearInterval(timer);
+      const t = c.currentTime;
+      g.gain.setTargetAtTime(0.0001, t, 0.04);
+      n.stop(t + 0.3);
+    },
+  };
+}
+
+/** big cinematic explosion */
+export function explosion() {
+  burst({ freq: 5200, q: 0.7, dur: 0.12, vol: 0.7, type: 'highpass' });
+  burst({ freq: 320, q: 0.4, dur: 1.6, vol: 1, type: 'lowpass', attack: 0.004 });
+  tone({ freq: 95, to: 28, type: 'sine', dur: 1.2, vol: 0.7 });
+  tone({ freq: 60, to: 22, type: 'triangle', dur: 1.4, vol: 0.35, delay: 0.05 });
+  for (let i = 0; i < 14; i++) burst({ freq: 1500 + Math.random() * 5000, q: 3, dur: 0.03 + Math.random() * 0.05, vol: 0.12, delay: 0.1 + Math.random() * 0.9 });
 }

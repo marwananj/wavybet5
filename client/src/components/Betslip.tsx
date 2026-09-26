@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { LuChevronDown, LuTicket, LuTrash2, LuX, LuCircleAlert } from 'react-icons/lu';
+import { LuChevronDown, LuTicket, LuTrash2, LuX, LuCircleAlert, LuShare2 } from 'react-icons/lu';
 import { api, ApiError } from '../lib/api';
 import { marketLabel, odds as fmtOdds, usd } from '../lib/format';
 import { useAuth, useSlip, useToast } from '../lib/state';
 import { Link } from '../lib/router';
 import { Spinner } from './ui';
 import { SlipOpenBets } from './Cashout';
+import { LoadCode, ShareSlip, useSlipLinkLoader } from './SlipShare';
+import { OddsFormatSelect } from './OddsFormatSelect';
 
 type Mode = 'singles' | 'parlay';
 const QUICK = [5, 10, 25, 50, 100];
@@ -21,6 +23,8 @@ export function Betslip() {
   const [error, setError] = useState<string | null>(null);
   const [placed, setPlaced] = useState<number | null>(null);
   const [view, setView] = useState<'slip' | 'open'>('slip');
+  const [sharing, setSharing] = useState(false);
+  useSlipLinkLoader();
 
   const picks = slip.picks;
   const n = picks.length;
@@ -91,6 +95,7 @@ export function Betslip() {
             <LuTicket size={20} />
             Betslip
             {n > 0 && <span className="slip-count">{n}</span>}
+            {slip.quick.on && <span className="slip-quick-tag">⚡ Quick {usd(slip.quick.stake)}</span>}
           </span>
           <span className="slip-bar-right">
             {n > 1 && mode === 'parlay' && <span className="slip-bar-odds">{fmtOdds(parlayOdds)}</span>}
@@ -99,6 +104,7 @@ export function Betslip() {
         </button>
 
         <div className="slip-body">
+          <QuickBetBar />
           <div className="slip-views">
             <button className={view === 'slip' ? 'on' : ''} onClick={() => setView('slip')}>
               Betslip {n > 0 && <em>{n}</em>}
@@ -124,6 +130,7 @@ export function Betslip() {
               <LuTicket size={34} />
               <p>Your betslip is empty</p>
               <span>Tap any odds to add a selection.</span>
+              <LoadCode />
             </div>
           ) : (
             <>
@@ -134,10 +141,14 @@ export function Betslip() {
                 <button className={mode === 'parlay' ? 'on' : ''} onClick={() => setMode('parlay')} disabled={n < 2 || sameEvent} title={sameEvent ? 'Two picks from the same match cannot be combined' : ''}>
                   Parlay
                 </button>
+                <button className={`slip-share-btn${sharing ? ' on' : ''}`} onClick={() => setSharing((x) => !x)} aria-label="Share betslip" title="Share / save this betslip">
+                  <LuShare2 size={16} />
+                </button>
                 <button className="slip-clear" onClick={slip.clear} aria-label="Clear betslip">
                   <LuTrash2 size={16} />
                 </button>
               </div>
+              {sharing && <ShareSlip onClose={() => setSharing(false)} />}
 
               <div className={`slip-picks${mode === 'parlay' ? ' parlay' : ''}`}>
                 {picks.map((p) => (
@@ -179,6 +190,7 @@ export function Betslip() {
               <div className={`slip-foot${mode === 'parlay' ? ' parlay' : ''}`}>
                 {mode === 'parlay' && (
                   <>
+                    <AccaInsurance picks={picks} />
                     <div className="parlay-card">
                       <div>
                         <small>{n}-leg parlay</small>
@@ -216,6 +228,9 @@ export function Betslip() {
                     <option value="none">Ask me</option>
                   </select>
                 </label>
+                <div className="slip-accept">
+                  <OddsFormatSelect compact />
+                </div>
                 {(error || unavailable || insufficient) && (
                   <div className="slip-error">
                     <LuCircleAlert size={16} />
@@ -251,5 +266,80 @@ export function Betslip() {
         </div>
       </aside>
     </>
+  );
+}
+
+/** ⚡ Quick Bet: one tap on any price places a single with this stake */
+function QuickBetBar() {
+  const slip = useSlip();
+  const { quick, setQuick } = slip;
+  const [edit, setEdit] = useState(String(quick.stake));
+  return (
+    <div className={`quickbet${quick.on ? ' on' : ''}`}>
+      <button type="button" className="qb-toggle" onClick={() => setQuick({ ...quick, on: !quick.on })} aria-pressed={quick.on}>
+        <span className="qb-switch">
+          <i />
+        </span>
+        <span>
+          <b>⚡ Quick Bet</b>
+          <small>{quick.on ? 'One tap on any odds places your bet' : 'Off — taps add to the betslip'}</small>
+        </span>
+      </button>
+      {quick.on && (
+        <div className="qb-stakes">
+          {[1, 5, 10, 25].map((v) => (
+            <button key={v} type="button" className={quick.stake === v ? 'on' : ''} onClick={() => (setQuick({ ...quick, stake: v }), setEdit(String(v)))}>
+              ${v}
+            </button>
+          ))}
+          <label>
+            $
+            <input
+              inputMode="decimal"
+              value={edit}
+              onChange={(e) => setEdit(e.target.value.replace(/[^0-9.]/g, ''))}
+              onBlur={() => {
+                const v = Math.max(0, Math.round(Number(edit) * 100) / 100);
+                setQuick({ ...quick, stake: v });
+                setEdit(String(v));
+              }}
+            />
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
+let rulesP: Promise<{ accaInsurance: { minLegs: number; minOdds: number; max: number } }> | null = null;
+/** 🛡️ Acca Insurance progress in the slip */
+function AccaInsurance({ picks }: { picks: { odds: number }[] }) {
+  const [r, setR] = useState<{ minLegs: number; minOdds: number; max: number } | null>(null);
+  useEffect(() => {
+    (rulesP ??= api('/bets/rules')).then((d) => setR(d.accaInsurance)).catch(() => (rulesP = null));
+  }, []);
+  if (!r || !(r.max > 0)) return null;
+  const good = picks.filter((p) => p.odds >= r.minOdds).length;
+  const low = picks.length - good;
+  const on = low === 0 && picks.length >= r.minLegs;
+  return (
+    <div className={`acca-ins ${on ? 'on' : ''}`}>
+      <span className="ai-ico">🛡️</span>
+      <div>
+        <b>{on ? 'Acca Insurance active' : 'Acca Insurance'}</b>
+        <small>
+          {on
+            ? `If just one leg loses, your stake comes back as bonus (up to ${usd(r.max)}).`
+            : low > 0
+              ? `Every leg needs odds ${r.minOdds.toFixed(2)}+ (${low} below).`
+              : `Add ${r.minLegs - picks.length} more leg${r.minLegs - picks.length > 1 ? 's' : ''} (${r.minLegs}+ legs, each ${r.minOdds.toFixed(2)}+).`}
+        </small>
+      </div>
+      <div className="ai-dots">
+        {Array.from({ length: r.minLegs }, (_, i) => (
+          <i key={i} className={i < Math.min(good, r.minLegs) ? 'on' : ''} />
+        ))}
+      </div>
+    </div>
   );
 }

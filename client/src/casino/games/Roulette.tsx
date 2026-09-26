@@ -5,7 +5,8 @@ import { casino } from '../api';
 import { ActionBar, GameShell, InfoRow, PlayButton, Seg, useBet, useMedia } from '../shared';
 import { ANNOUNCED, color, covered, HOTSPOTS, k as K, neighbours, ORDER, PAYS, RED, toApi, type BetKey } from '../rouletteBets';
 import { Racetrack } from './Racetrack';
-import { resultSound, rollLoop, sfx } from '../sound';
+import { resultSound, rollLoop, sfx, speak } from '../sound';
+import { HoldemDealer, type DealerMood } from './HoldemDealer';
 
 const STEP = 360 / 37;
 const CHIPS = [0.1, 0.5, 1, 5, 10, 25, 100];
@@ -35,9 +36,52 @@ const APRON_R = 39.6; // where the ball leaves the track and hits the deflectors
 
 /* spin timeline (seconds) */
 const T_DROP = 4.1; // ball leaves the track
-const T_LOCK = 5.9; // ball settles in the pocket
-const T_WHEEL = 8.5; // rotor coasts to rest
+const T_SPIRAL = 0.55; // spirals down the bowl and hits a deflector
+const T_WHEEL = 9; // rotor coasts to rest
 const LIFT = 0.35; // dealer launches the ball from the pocket onto the track
+const RING_R = 34.5; // first contact with the rotor (number ring / fret tops)
+
+/* ease with a non-zero end speed: the ball is still travelling when it leaves the track */
+const easeOutKeep = (v: number) => (1.6 * v - 0.6 * v * v);
+
+interface Hop {
+  from: number; // relative angle at take-off
+  to: number; // relative angle at landing
+  t0: number;
+  dur: number;
+  h: number; // height of the hop (px in 3D)
+  r: number; // radial pop (in % of bowl) toward the number ring
+}
+
+/** A realistic landing: 3–5 hops over the frets, each shorter and lower, the last one into the winning pocket. */
+function planHops(start: number, end: number, tStart: number) {
+  const hops: Hop[] = [];
+  const n = 3 + Math.floor(Math.random() * 3); // 3..5
+  // displacement of every hop in pockets (first ones big, mostly in the travel direction (-), some kick back (+))
+  const d: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const size = (2.6 - i * 0.55) * (0.7 + Math.random() * 0.6);
+    const back = i > 0 && Math.random() < 0.38;
+    d.push(Math.max(0.35, size) * (back ? 1 : -1));
+  }
+  // scale so the hops end exactly on the winning pocket
+  const want = end - start;
+  const sum = d.reduce((x, y) => x + y, 0) * STEP;
+  const fix = (want - sum) / n;
+  let at = start;
+  let t = tStart;
+  for (let i = 0; i < n; i++) {
+    const dur = Math.max(0.1, 0.36 - i * 0.065) * (0.9 + Math.random() * 0.2);
+    const to = i === n - 1 ? end : at + d[i] * STEP + fix;
+    hops.push({ from: at, to, t0: t, dur, h: Math.max(1.5, 16 - i * 4) * (0.8 + Math.random() * 0.4), r: Math.max(0.6, 4.5 - i * 1.1) });
+    at = to;
+    t += dur;
+  }
+  // tiny rattle inside the pocket
+  hops.push({ from: end, to: end + STEP * 0.12, t0: t, dur: 0.07, h: 1.2, r: 0.3 });
+  hops.push({ from: end + STEP * 0.12, to: end, t0: t + 0.07, dur: 0.06, h: 0.6, r: 0.15 });
+  return { hops, tLock: t + 0.13 };
+}
 
 /* ─────────────────────────────── rotor art ────────────────────────────── */
 
@@ -164,10 +208,14 @@ interface Anim {
   W0: number;
   Wd: number;
   rel0: number;
+  relA: number; // where the ball leaves the track (relative angle)
+  relB: number; // first contact with the rotor
   relEnd: number;
   R0: number;
+  hops: Hop[];
+  hop: number;
+  tLock: number;
   locked: boolean;
-  bounce: number;
   onLock: () => void;
 }
 
@@ -177,7 +225,7 @@ function useWheel() {
   const shadow = useRef<HTMLDivElement>(null);
   const cam = useRef<HTMLDivElement>(null);
   const z = useRef({ zoom: 1, tx: 0, ty: 0 });
-  const s = useRef({ W: 0, rel: 0, R: POCKET_R, visible: false, anim: null as Anim | null, roll: null as ReturnType<typeof rollLoop> | null, lastB: 0 });
+  const s = useRef({ W: 0, rel: 0, R: POCKET_R, H: 0, visible: false, anim: null as Anim | null, roll: null as ReturnType<typeof rollLoop> | null, lastB: 0 });
 
   useEffect(() => {
     let raf = 0;
@@ -191,40 +239,51 @@ function useWheel() {
         const t = (now - a.t0) / 1000;
         const u = Math.min(1, t / T_WHEEL);
         st.W = a.W0 + a.Wd * (1 - Math.pow(1 - u, 2.4)) + 7 * Math.min(t, T_WHEEL); // coasts into the idle drift
-        if (t < T_LOCK) {
-          const v = t / T_LOCK;
-          let rel = a.rel0 + (a.relEnd - a.rel0) * (1 - Math.pow(1 - v, 2.6));
+        let H = 0; // ball height above the wheel (px)
+        if (t < a.tLock) {
+          let rel: number;
           let R: number;
-          if (t < LIFT) R = a.R0 + (TRACK_R - a.R0) * (t / LIFT);
-          else if (t < T_DROP) R = TRACK_R - Math.pow((t - LIFT) / (T_DROP - LIFT), 5) * (TRACK_R - APRON_R) * 0.35;
-          else {
-            const k = (t - T_DROP) / (T_LOCK - T_DROP); // 0‥1
-            const FALL = 0.2;
-            if (k < FALL) {
-              const f = k / FALL;
-              R = TRACK_R - (TRACK_R - APRON_R) * 0.35 - (TRACK_R - (TRACK_R - APRON_R) * 0.35 - POCKET_R) * f * f;
-            } else {
-              const q = (k - FALL) / (1 - FALL);
-              const decay = Math.pow(1 - q, 2);
-              const phase = q * Math.PI * 4.5;
-              R = POCKET_R + Math.abs(Math.sin(phase)) * 5.2 * decay;
-              rel += Math.sin(phase * 0.9) * STEP * 1.4 * decay; // skitters across the frets
-              const hop = Math.floor(phase / Math.PI);
-              if (hop !== a.bounce) {
-                a.bounce = hop;
-                sfx.bounce(Math.max(0.2, decay * 0.8)); // lands between hops
-              }
+          if (t < T_DROP) {
+            // riding the track, slowing down
+            rel = a.rel0 + (a.relA - a.rel0) * easeOutKeep(t / T_DROP);
+            if (t < LIFT) R = a.R0 + (TRACK_R - a.R0) * (t / LIFT);
+            else R = TRACK_R - Math.pow((t - LIFT) / (T_DROP - LIFT), 6) * 1.2;
+          } else if (t < T_DROP + T_SPIRAL) {
+            // spirals down the bowl, clips a diamond and pops up
+            const k = (t - T_DROP) / T_SPIRAL;
+            rel = a.relA + (a.relB - a.relA) * (1 - Math.pow(1 - k, 1.6));
+            const r0 = TRACK_R - 1.2;
+            R = r0 - (r0 - RING_R) * k * k;
+            if (k > 0.35 && k < 0.8) {
+              const q = (k - 0.35) / 0.45;
+              H = Math.sin(q * Math.PI) * 14; // deflector kick
+              R += Math.sin(q * Math.PI) * 1.4;
             }
-            // every fret the ball crosses relative to the rotor clicks, louder while it is fast
+            if (!a.diamond && k > 0.35) {
+              a.diamond = true;
+              sfx.diamond();
+            }
+          } else {
+            // hops over the frets into the pocket
+            let i = a.hop;
+            while (i < a.hops.length - 1 && t >= a.hops[i].t0 + a.hops[i].dur) i++;
+            const hp = a.hops[i];
+            if (i !== a.hop) {
+              a.hop = i;
+              sfx.bounce(Math.max(0.2, 1 - i * 0.2)); // landing clack on a fret / pocket
+            }
+            const q = Math.min(1, Math.max(0, (t - hp.t0) / hp.dur));
+            rel = hp.from + (hp.to - hp.from) * q;
+            const arc = 4 * q * (1 - q);
+            H = hp.h * arc;
+            // pockets are lower than the number ring: the ball sinks inward as the hops die out
+            const base = i === 0 ? RING_R + (POCKET_R - RING_R) * q : POCKET_R;
+            R = base + hp.r * arc;
+            // every fret it passes clicks
             const pocketNow = Math.floor((rel + STEP / 2) / STEP);
             if (a.fret !== pocketNow) {
-              // only once the ball is down among the pockets
-              if (a.fret !== -9999 && k > 0.14) sfx.fret(Math.max(0.25, 1 - k * 0.7));
+              if (a.fret !== -9999 && H < 3) sfx.fret(Math.max(0.2, 0.8 - i * 0.15));
               a.fret = pocketNow;
-            }
-            if (!a.diamond && k > 0.06) {
-              a.diamond = true;
-              sfx.diamond(); // hits a deflector as it leaves the track
             }
           }
           st.rel = rel;
@@ -240,12 +299,13 @@ function useWheel() {
             a.onLock();
           }
         }
+        st.H = H;
         if (u >= 1) st.anim = null;
         // rolling noise follows the ball's speed over the bowl
         const B = st.W + st.rel;
         const speed = Math.abs(B - st.lastB) / Math.max(dt, 1e-3);
         st.lastB = B;
-        if (st.roll) st.roll.set(t < T_DROP ? speed / 900 : (speed / 900) * 0.5);
+        if (st.roll) st.roll.set(t < T_DROP ? speed / 900 : t < T_DROP + T_SPIRAL ? (speed / 900) * 0.7 : 0.08);
       } else {
         st.W += 7 * dt; // idle drift like a live table
       }
@@ -256,7 +316,7 @@ function useWheel() {
       // TV close-up: the camera pushes in on the ball as it drops, holds on the pocket, then pulls back
       {
         const at = a ? (now - a.t0) / 1000 : 99;
-        const want = a && at > T_DROP - 0.4 && at < T_LOCK + 2.2 ? 1.55 : 1;
+        const want = a && at > T_DROP - 0.3 && at < a.tLock + 2.2 ? 1.55 : 1;
         const zz = z.current;
         zz.zoom += (want - zz.zoom) * (want > zz.zoom ? 0.045 : 0.06);
         const k = (zz.zoom - 1) / 0.55; // 0‥1
@@ -269,11 +329,13 @@ function useWheel() {
         ball.current.style.left = `${x}%`;
         ball.current.style.top = `${y}%`;
         ball.current.style.opacity = st.visible ? '1' : '0';
+        ball.current.style.setProperty('--bz', `${(6 + st.H).toFixed(1)}px`);
       }
       if (shadow.current) {
         shadow.current.style.left = `${x}%`;
         shadow.current.style.top = `${y + 0.8}%`;
-        shadow.current.style.opacity = st.visible ? '1' : '0';
+        shadow.current.style.opacity = st.visible ? String(Math.max(0.25, 1 - st.H / 24)) : '0';
+        shadow.current.style.setProperty('--ss', (1.25 + st.H / 30).toFixed(2));
       }
       raf = requestAnimationFrame(loop);
     };
@@ -293,15 +355,26 @@ function useWheel() {
       // ball runs 5–6 laps counter-clockwise relative to the rotor
       const d = (((rel0 - want) % 360) + 360) % 360;
       const relEnd = rel0 - d - 360 * 5;
+      const tHops = T_DROP + T_SPIRAL;
+      // work backwards from the winning pocket: hops, then the spiral, then the track
+      const spiral = -(55 + Math.random() * 25);
+      const hopTravel = -(4 + Math.random() * 5) * STEP; // total drift of the hops (pockets)
+      const relB = relEnd - hopTravel;
+      const relA = relB - spiral;
+      const plan = planHops(relB, relEnd, tHops);
       st.anim = {
         t0: performance.now(),
         W0: st.W,
         Wd: 360 * 2 + 120 + Math.random() * 180,
         rel0,
+        relA,
+        relB,
         relEnd,
         R0: st.visible ? st.R : TRACK_R,
+        hops: plan.hops,
+        hop: 0,
+        tLock: plan.tLock,
         locked: false,
-        bounce: -1,
         fret: -9999,
         diamond: false,
         onLock: () => {
@@ -544,6 +617,13 @@ export function RouletteGame() {
   const stage = useRef<HTMLDivElement>(null);
   const spinning = phase !== 'bets' && phase !== 'result';
   const thunder = mode === 'thunder';
+  // live croupier
+  const [talk, setTalk] = useState<{ line: string; mood: DealerMood; key: number }>({ line: 'Welcome! Place your bets, please.', mood: 'idle', key: 0 });
+  const say = (line: string, mood: DealerMood = 'talk', voice?: string) => {
+    setTalk((t) => ({ line, mood, key: t.key + 1 }));
+    if (voice) speak(voice, { rate: 0.98 });
+    if (mood === 'talk') setTimeout(() => setTalk((t) => (t.line === line ? { ...t, mood: 'idle' } : t)), 1500);
+  };
 
   const total = useMemo(() => Math.round(Object.values(bets).reduce((a, b) => a + b, 0) * 100) / 100, [bets]);
   const straightChips = useMemo(() => {
@@ -568,6 +648,7 @@ export function RouletteGame() {
     setLast(null);
     setLucky(new Map());
     setPhase('bets');
+    say('Place your bets, please.', 'idle');
     return true;
   };
   const placeMany = (items: [BetKey, number][]) => {
@@ -648,6 +729,7 @@ export function RouletteGame() {
     const list = Object.entries(bets).map(([key, amount]) => toApi(key, amount));
     const placed = { ...bets };
     setPhase('closed');
+    say('No more bets!', 'talk', 'No more bets.');
     setSettled(false);
     setOutcome(null);
     setLast(null);
@@ -671,6 +753,7 @@ export function RouletteGame() {
         await sleep(300);
       }
       setPhase('spin');
+      say('Good luck, everyone…', 'idle');
       if (tall) top.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       await wheel.spin(res.result.pocket);
       const n = res.result.number;
@@ -680,6 +763,16 @@ export function RouletteGame() {
       setPhase('result');
       setHistory((h) => [{ n, id: Date.now(), x: strikes.find((s) => s.number === n)?.multiplier }, ...h].slice(0, 18));
       setOutcome({ n, returned: res.result.returned, total, boost });
+      {
+        const col = n === 0 ? 'zero' : color(n);
+        const won = res.result.returned > 0;
+        const call = n === 0 ? 'Zero, green.' : `${n}, ${col}.`;
+        say(
+          won ? `${n === 0 ? 'Zero' : `${n} ${col}`} — winner! ${usd(res.result.returned)} for you.` : `${n === 0 ? 'Zero' : `${n} ${col}`}. Place your bets for the next spin.`,
+          won ? 'happy' : 'idle',
+          won ? `${call} Congratulations!` : call
+        );
+      }
       bet.setBalance(res.balance);
       setRefresh((x) => x + 1);
       setTimeout(() => (boost ? (sfx.thunder(), setFlash((f) => f + 1), sfx.bigWin()) : resultSound(total ? res.result.returned / total : 0)), 250);
@@ -799,6 +892,9 @@ export function RouletteGame() {
             <span className={`rl-phase p-${phase}`} key={phase}>
               {phase === 'result' && last != null ? `${last} ${color(last).toUpperCase()}` : PHASE_TEXT[phase]}
             </span>
+          </div>
+          <div className="rl-croupier">
+            <HoldemDealer mood={talk.mood} line={talk.line} lineKey={talk.key} dealing={phase === 'closed' || phase === 'spin'} />
           </div>
           <div className="rl-top" ref={top}>
             <Wheel w={wheel} spinning={spinning} win={last} lucky={lucky} thunder={thunder} />

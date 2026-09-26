@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode, type MouseEvent } from 'react';
+import { type CSSProperties, createContext, useContext, useEffect, useState, type ReactNode, type MouseEvent } from 'react';
 
 /** Minimal history router — keeps the bundle lean and has zero dependencies. */
 const Ctx = createContext<{ path: string; search: URLSearchParams; navigate: (to: string, replace?: boolean) => void }>({
@@ -38,7 +38,7 @@ export function match(pattern: string, path: string): Record<string, string> | n
   return params;
 }
 
-export function Link({ to, children, className, onClick, ...rest }: { to: string; children: ReactNode; className?: string; onClick?: () => void; title?: string }) {
+export function Link({ to, children, className, onClick, ...rest }: { to: string; children: ReactNode; className?: string; onClick?: () => void; title?: string; style?: CSSProperties }) {
   const { navigate } = useRouter();
   return (
     <a

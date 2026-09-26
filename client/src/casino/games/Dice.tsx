@@ -4,6 +4,7 @@ import { usd } from '../../lib/format';
 import { casino, mult, sleep } from '../api';
 import { ActionBar, BetAmount, GameShell, InfoRow, PlayButton, useBet } from '../shared';
 import { resultSound, sfx } from '../sound';
+import { useAutoBet, type AutoResult } from '../autobet';
 
 interface DiceResult {
   roll: number;
@@ -43,29 +44,32 @@ export function DiceGame() {
     setTarget(round2(100 - target));
   };
 
-  async function play() {
-    if (!bet.ensure(stake)) return;
+  async function play(st = stake): Promise<AutoResult | null> {
+    if (!bet.ensure(st)) return null;
     setBusy(true);
     setWon(null);
-    bet.debit(stake);
+    bet.debit(st);
     try {
       sfx.bet();
-      const res = await casino.play<DiceResult>('dice', { stake, target, over });
+      const res = await casino.play<DiceResult>('dice', { stake: st, target, over });
       sfx.dice();
       setRoll(res.result.roll);
       const win = res.round.status === 'WON';
-      await sleep(520);
+      await sleep(auto.running ? 260 : 520);
       setWon(win);
       resultSound(win ? res.round.multiplier : 0);
       setHistory((h) => [{ roll: res.result.roll, win, id: Date.now() }, ...h].slice(0, 12));
       bet.setBalance(res.balance);
       setRefresh((r) => r + 1);
+      return { stake: st, payout: Number(res.round.payout) };
     } catch (e) {
       bet.fail(e);
+      return null;
     } finally {
       setBusy(false);
     }
   }
+  const auto = useAutoBet({ amount, setAmount, playOnce: (st) => play(st), gap: 200 });
 
   const winZone = over ? { left: `${target}%`, right: 0 } : { left: 0, right: `${100 - target}%` };
 
@@ -75,12 +79,24 @@ export function DiceGame() {
       refreshKey={refresh}
       controls={
         <>
-          <BetAmount value={amount} onChange={setAmount} disabled={busy} />
+          {auto.modeSwitch}
+          <BetAmount value={amount} onChange={setAmount} disabled={busy || auto.running} />
           <InfoRow label="Profit on win" value={usd(stake * m - stake)} accent />
+          {auto.panel}
           <ActionBar>
-            <PlayButton busy={busy} onClick={play}>
-              Roll dice
-            </PlayButton>
+            {auto.mode === 'auto' ? (
+              auto.running ? (
+                <PlayButton tone="cash" onClick={auto.stop}>
+                  Stop autobet · {auto.done}
+                </PlayButton>
+              ) : (
+                <PlayButton onClick={auto.start}>Start autobet</PlayButton>
+              )
+            ) : (
+              <PlayButton busy={busy} onClick={() => play()}>
+                Roll dice
+              </PlayButton>
+            )}
           </ActionBar>
         </>
       }
@@ -106,7 +122,7 @@ export function DiceGame() {
                 max={100}
                 step={0.01}
                 value={target}
-                disabled={busy}
+                disabled={busy || auto.running}
                 onChange={(e) => setSlider(Number(e.target.value))}
                 aria-label="Target"
               />

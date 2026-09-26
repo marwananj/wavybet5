@@ -8,6 +8,7 @@ import { useAuth, useToast } from '../lib/state';
 import type { User } from '../lib/types';
 import { BackBar } from '../components/Layout';
 import { Empty, Spinner } from '../components/ui';
+import { OddsFormatSelect } from '../components/OddsFormatSelect';
 
 export function AccountPage() {
   const { user, ready, openAuth, logout, setUser } = useAuth();
@@ -70,6 +71,34 @@ export function AccountPage() {
         <Link to="/bets" className="ql"><LuTicket size={20} /> My bets</Link>
         {user.role === 'ADMIN' && <Link to="/admin" className="ql"><LuShield size={20} /> Admin</Link>}
       </div>
+
+      <section className="panel">
+        <h3>Preferences</h3>
+        <div className="pref-block">
+          <span className="pref-label">Odds format</span>
+          <OddsFormatSelect />
+        </div>
+        <label className="pref-toggle">
+          <div>
+            <b>Hide my name in the live bet feed</b>
+            <small>Show as “Hidden” on public feeds, leaderboards and player cards.</small>
+          </div>
+          <input
+            type="checkbox"
+            className="switch"
+            checked={!!user.hideInFeed}
+            onChange={async (e) => {
+              try {
+                const d = await api<{ user: User }>('/auth/preferences', { body: { hideInFeed: e.target.checked } });
+                setUser(d.user);
+                toast('ok', d.user.hideInFeed ? 'Your name is now hidden' : 'Your name is visible in the feed');
+              } catch (err) {
+                toast('err', (err as ApiError).message);
+              }
+            }}
+          />
+        </label>
+      </section>
 
       <section className="panel">
         <h3>Change password</h3>

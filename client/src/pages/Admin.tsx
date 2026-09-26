@@ -715,6 +715,127 @@ function ChatModeration() {
   );
 }
 
+
+type ABet = {
+  id: string; type: string; status: string; stake: string; totalOdds: string; potentialPayout: string; payout: string | null; createdAt: string; settledAt: string | null; live: boolean;
+  user: { username: string; email: string; tier: string };
+  selections: { id: string; eventLabel: string; sportTitle: string; marketKey: string; outcomeName: string; odds: string; status: string; commenceTime: string }[];
+};
+type BetsRes = {
+  bets: ABet[];
+  next: string | null;
+  summary: { count: number; counts: Record<string, number>; staked: number; paid: number; ggr: number; openCount: number; openStake: number; openLiability: number };
+  exposure: { eventId: string; event: string; bets: number; stake: number; liability: number }[];
+};
+
+/** Every sports bet placed on the site (all players) */
+function AdminBets() {
+  const [f, setF] = useState({ status: 'all', type: 'all', q: '', days: '7', minStake: '' });
+  const [d, setD] = useState<BetsRes | null>(null);
+  const [more, setMore] = useState<ABet[]>([]);
+  const [open, setOpen] = useState<string | null>(null);
+  const qs = (cursor?: string) =>
+    new URLSearchParams({ status: f.status, type: f.type, days: f.days, ...(f.q ? { q: f.q } : {}), ...(f.minStake ? { minStake: f.minStake } : {}), ...(cursor ? { cursor } : {}) }).toString();
+  const load = () => api<BetsRes>(`/admin/bets?${qs()}`).then((x) => { setD(x); setMore([]); }).catch(() => setD(null));
+  useEffect(() => {
+    const t = setTimeout(load, 250);
+    return () => clearTimeout(t);
+  }, [f.status, f.type, f.q, f.days, f.minStake]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const t = setInterval(() => document.visibilityState === 'visible' && !more.length && load(), 15000);
+    return () => clearInterval(t);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+  const next = more.length ? null : d?.next;
+  const loadMore = async () => {
+    if (!d?.next) return;
+    const x = await api<BetsRes>(`/admin/bets?${qs(d.next)}`);
+    setMore(x.bets);
+    setD({ ...d, next: x.next });
+  };
+  const rows = [...(d?.bets ?? []), ...more];
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
+  return (
+    <div className="admin-bets">
+      <div className="ab-filters">
+        <input placeholder="Player, e-mail, match or bet ID" value={f.q} onChange={set('q')} />
+        <select value={f.status} onChange={set('status')}>
+          {['all', 'OPEN', 'WON', 'LOST', 'CASHOUT', 'VOID'].map((x) => <option key={x} value={x}>{x === 'all' ? 'All statuses' : x.toLowerCase()}</option>)}
+        </select>
+        <select value={f.type} onChange={set('type')}>
+          {['all', 'SINGLE', 'PARLAY', 'BUILDER'].map((x) => <option key={x} value={x}>{x === 'all' ? 'All types' : x.toLowerCase()}</option>)}
+        </select>
+        <select value={f.days} onChange={set('days')}>
+          {[['1', 'Today'], ['7', '7 days'], ['30', '30 days'], ['90', '90 days']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <input placeholder="Min stake $" inputMode="decimal" value={f.minStake} onChange={set('minStake')} />
+      </div>
+      {d && (
+        <div className="ab-summary">
+          <div><small>Bets</small><b>{d.summary.count}</b></div>
+          <div><small>Staked</small><b>{usd(d.summary.staked)}</b></div>
+          <div><small>Paid out</small><b>{usd(d.summary.paid)}</b></div>
+          <div className={d.summary.ggr >= 0 ? 'pos' : 'neg'}><small>GGR (settled)</small><b>{usd(d.summary.ggr)}</b></div>
+          <div><small>Open bets</small><b>{d.summary.openCount} · {usd(d.summary.openStake)}</b></div>
+          <div className="warn"><small>Open liability</small><b>{usd(d.summary.openLiability)}</b></div>
+        </div>
+      )}
+      {d && d.exposure.length > 0 && (
+        <div className="ab-exposure">
+          <h4>Biggest open exposure</h4>
+          {d.exposure.map((e) => (
+            <div key={e.eventId}>
+              <span className="ellipsis">{e.event}</span>
+              <small>{e.bets} bets · {usd(e.stake)} staked</small>
+              <b>{usd(e.liability)}</b>
+            </div>
+          ))}
+        </div>
+      )}
+      {d === null ? <Skeleton h={56} count={6} /> : (
+        <div className="ab-list">
+          {rows.map((b) => (
+            <div key={b.id} className={`ab-bet st-${b.status.toLowerCase()} ${open === b.id ? 'open' : ''}`}>
+              <button type="button" className="ab-main" onClick={() => setOpen(open === b.id ? null : b.id)}>
+                <span className="ab-user">
+                  <b>{b.user.username}</b>
+                  <small>{b.user.email}</small>
+                </span>
+                <span className="ab-what">
+                  <b className="ellipsis">{b.type === 'SINGLE' ? b.selections[0]?.outcomeName : `${b.type.toLowerCase()} · ${b.selections.length} legs`}</b>
+                  <small className="ellipsis">{b.type === 'SINGLE' ? b.selections[0]?.eventLabel : b.selections.map((s) => s.eventLabel).join(' · ')}</small>
+                </span>
+                <span className="ab-num"><small>Stake</small><b>{usd(b.stake)}</b></span>
+                <span className="ab-num"><small>Odds</small><b>{Number(b.totalOdds).toFixed(2)}</b></span>
+                <span className="ab-num"><small>{b.status === 'OPEN' ? 'To win' : 'Paid'}</small><b>{usd(b.status === 'OPEN' ? b.potentialPayout : b.payout ?? 0)}</b></span>
+                <span className="ab-tags">
+                  <em className={`ab-st st-${b.status.toLowerCase()}`}>{b.status.toLowerCase()}</em>
+                  {b.live && <em className="ab-live">LIVE</em>}
+                  <small>{new Date(b.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>
+                </span>
+              </button>
+              {open === b.id && (
+                <div className="ab-legs">
+                  {b.selections.map((s) => (
+                    <div key={s.id} className={`st-${s.status.toLowerCase()}`}>
+                      <span><b>{s.outcomeName}</b> <small>{s.marketKey}</small></span>
+                      <span className="ellipsis">{s.eventLabel} · {s.sportTitle}</span>
+                      <span>@ {Number(s.odds).toFixed(2)}</span>
+                      <em>{s.status.toLowerCase()}</em>
+                    </div>
+                  ))}
+                  <small className="muted">Bet ID {b.id}{b.settledAt ? ` · settled ${new Date(b.settledAt).toLocaleString()}` : ''}</small>
+                </div>
+              )}
+            </div>
+          ))}
+          {!rows.length && <p className="muted">No bets match these filters.</p>}
+          {next && <button className="btn btn-ghost btn-block" onClick={loadMore}>Load more</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AdminPage() {
   const { user, ready } = useAuth();
   const { search, navigate } = useRouter();
@@ -725,12 +846,13 @@ export function AdminPage() {
     <div className="page">
       <BackBar title="Admin" />
       <div className="seg seg-scroll">
-        {['dashboard', 'deposits', 'withdrawals', 'users', 'support', 'chat', 'events', 'sports', 'markets'].map((t) => (
+        {['dashboard', 'bets', 'deposits', 'withdrawals', 'users', 'support', 'chat', 'events', 'sports', 'markets'].map((t) => (
           <button key={t} className={tab === t ? 'on' : ''} onClick={() => navigate(`/admin?tab=${t}`, true)}>{t}</button>
         ))}
       </div>
       <div className="admin-body">
         {tab === 'dashboard' && <Dashboard />}
+        {tab === 'bets' && <AdminBets />}
         {tab === 'deposits' && <Deposits />}
         {tab === 'withdrawals' && <Withdrawals />}
         {tab === 'users' && <Users />}

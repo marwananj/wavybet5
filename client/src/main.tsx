@@ -26,6 +26,12 @@ import { WheelGame } from './casino/games/Wheel';
 import { TowerGame } from './casino/games/Tower';
 import { HoldemGame } from './casino/games/Holdem';
 import { HorsesGame } from './casino/games/Horses';
+import { BombGame } from './casino/games/Bomb';
+import { PlinkoGame } from './casino/games/Plinko';
+import { LimboGame } from './casino/games/Limbo';
+import { VideoPokerGame } from './casino/games/VideoPoker';
+import { FruitsSlot, GemsSlot, PharaohSlot } from './casino/games/Slots';
+import { TvDice, TvWar } from './casino/games/TvGame';
 
 const CASINO: Record<string, () => JSX.Element> = {
   dice: DiceGame,
@@ -40,11 +46,24 @@ const CASINO: Record<string, () => JSX.Element> = {
   tower: TowerGame,
   holdem: HoldemGame,
   horses: HorsesGame,
+  bomb: BombGame,
+  plinko: PlinkoGame,
+  limbo: LimboGame,
+  videopoker: VideoPokerGame,
+  'slot-fruits': FruitsSlot,
+  'slot-gems': GemsSlot,
+  'slot-pharaoh': PharaohSlot,
+  'tv-dice': TvDice,
+  'tv-war': TvWar,
 };
 import { Empty } from './components/ui';
 import { Link } from './lib/router';
 import type { Sport } from './lib/types';
 import { VerifyGate } from './components/VerifyGate';
+import { RewardsPage } from './pages/Rewards';
+import { StatsPage } from './pages/Stats';
+import { TournamentPage } from './pages/Tournament';
+import { ReferralPage } from './pages/Referral';
 import { SUPPORT_EMAIL } from './lib/site';
 import { useAuth } from './lib/state';
 import { ChatPanel } from './components/ChatPanel';
@@ -66,6 +85,10 @@ function Routes({ sports }: { sports: Sport[] }) {
   if (path === '/vip') return <VipPage />;
   if (path === '/tips') return <TipsPage />;
   if (path === '/promotions') return <PromotionsPage />;
+  if (path === '/rewards') return <RewardsPage />;
+  if (path === '/stats') return <StatsPage />;
+  if (path === '/tournament') return <TournamentPage />;
+  if (path === '/referral') return <ReferralPage />;
   if (path === '/terms') return <InfoPage kind="terms" />;
   if (path === '/responsible-gambling') return <InfoPage kind="responsible" />;
   if ((m = match('/sport/:key', path))) return <SportPage key={m.key} sportKey={m.key} sports={sports} />;
@@ -88,6 +111,13 @@ function Shell() {
     return () => window.removeEventListener('wb-chat', h);
   }, []);
   const { user } = useAuth();
+  // re-render everything when the odds format changes
+  const [, setOddsTick] = useState(0);
+  useEffect(() => {
+    const h = () => setOddsTick((x) => x + 1);
+    window.addEventListener('wb-odds', h);
+    return () => window.removeEventListener('wb-odds', h);
+  }, []);
   // players must confirm their e-mail code before they can enter the site
   if (user && user.emailVerified === false)
     return (

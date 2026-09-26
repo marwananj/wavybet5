@@ -1,7 +1,49 @@
 export const usd = (v: number | string | null | undefined) =>
   `$${Number(v ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export const odds = (v: number | string) => Number(v).toFixed(2);
+export type OddsFormat = 'decimal' | 'fractional' | 'american';
+let ODDS_FMT: OddsFormat = (() => {
+  try {
+    const v = localStorage.getItem('wb_odds');
+    return v === 'fractional' || v === 'american' ? v : 'decimal';
+  } catch {
+    return 'decimal';
+  }
+})();
+export const getOddsFormat = () => ODDS_FMT;
+export function setOddsFormat(f: OddsFormat) {
+  ODDS_FMT = f;
+  try {
+    localStorage.setItem('wb_odds', f);
+  } catch {
+    /* ignore */
+  }
+}
+/** decimal → nearest simple fraction (e.g. 2.50 → 3/2, 1.91 → 10/11) */
+function toFraction(dec: number) {
+  const x = dec - 1;
+  if (x <= 0) return '0/1';
+  let best = [Math.round(x), 1];
+  let err = Math.abs(x - best[0]);
+  for (let d = 1; d <= 40; d++) {
+    const n = Math.round(x * d);
+    const e = Math.abs(x - n / d);
+    if (n > 0 && e < err - 1e-9) {
+      best = [n, d];
+      err = e;
+      if (e < 0.005) break;
+    }
+  }
+  return `${best[0]}/${best[1]}`;
+}
+/** Odds in the player's chosen format (Decimal / Fractional / American). */
+export const odds = (v: number | string) => {
+  const d = Number(v);
+  if (!Number.isFinite(d) || d <= 1) return d.toFixed(2);
+  if (ODDS_FMT === 'fractional') return toFraction(d);
+  if (ODDS_FMT === 'american') return d >= 2 ? `+${Math.round((d - 1) * 100)}` : `${Math.round(-100 / (d - 1))}`;
+  return d.toFixed(2);
+};
 
 export const MARKET_LABEL: Record<string, string> = {
   h2h: 'Match result',

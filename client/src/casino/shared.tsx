@@ -9,6 +9,8 @@ import { casino, loadCasinoConfig, mult, RANKS, SUITS, type Card, type CasinoCon
 import { GAMES } from './meta';
 import { BetFeed } from '../components/BetFeed';
 import { sfx, useMuted } from './sound';
+import { SessionStats } from './session';
+import { pushRecentGame } from '../lib/favs';
 
 /* ------------------------------ hooks ------------------------------- */
 
@@ -90,6 +92,7 @@ export function GameShell({
 }) {
   const meta = GAMES.find((g) => g.id === game)!;
   const [fair, setFair] = useState(false);
+  useEffect(() => pushRecentGame(game), [game]);
   const [muted, setMuted] = useMuted();
   return (
     <div className={`page casino-page g-${game} ${className}`}>
@@ -112,6 +115,7 @@ export function GameShell({
         >
           {muted ? <LuVolumeX size={18} /> : <LuVolume2 size={18} />}
         </button>
+        <SessionStats game={game} />
         <button className="btn btn-ghost btn-sm fair-btn" onClick={() => setFair(true)}>
           <LuShieldCheck size={16} /> <span className="hide-sm">Fairness</span>
         </button>

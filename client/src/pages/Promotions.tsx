@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { LuCrown, LuHeadphones, LuLightbulb } from 'react-icons/lu';
+import { LuCrown, LuHeadphones, LuLightbulb, LuRotateCcw, LuTrophy, LuUsers, LuGift } from 'react-icons/lu';
 import { api } from '../lib/api';
 import { usd } from '../lib/format';
 import { Link } from '../lib/router';
@@ -22,6 +22,26 @@ export function PromotionsPage() {
           <span>
             {usd(info?.reward ?? 20)} real balance for every {usd(info?.step ?? 5000)} you wager — casino or sports.
           </span>
+        </Link>
+        <Link to="/rewards" className="promo-card spin">
+          <LuRotateCcw size={26} />
+          <b>Daily wheel</b>
+          <span>A free spin every day — win up to $25.</span>
+        </Link>
+        <Link to="/rewards" className="promo-card cash">
+          <LuGift size={26} />
+          <b>Weekly cashback</b>
+          <span>5% of last week's net losses back every Monday, no wagering.</span>
+        </Link>
+        <Link to="/tournament" className="promo-card race">
+          <LuTrophy size={26} />
+          <b>Weekly race</b>
+          <span>Top 10 wagerers share the prize pool every Sunday.</span>
+        </Link>
+        <Link to="/referral" className="promo-card refer">
+          <LuUsers size={26} />
+          <b>Refer &amp; earn</b>
+          <span>Earn a commission on every bet your friends place — for life.</span>
         </Link>
         <Link to="/tips" className="promo-card tips">
           <LuLightbulb size={26} />

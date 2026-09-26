@@ -7,7 +7,7 @@ import { useAuth, useSlip, useToast } from '../lib/state';
 import { useGoalAlerts } from '../lib/goals';
 import type { Sport } from '../lib/types';
 import { Logo, SportIcon } from './ui';
-import { LuDices, LuMessageCircle, LuCrown, LuLightbulb, LuGift } from 'react-icons/lu';
+import { LuDices, LuMessageCircle, LuCrown, LuLightbulb, LuGift, LuSparkles, LuTrophy, LuUsers, LuChartLine } from 'react-icons/lu';
 
 /** open the chat drawer from anywhere */
 export const openChat = (tab: 'chat' | 'support' = 'chat') => window.dispatchEvent(new CustomEvent('wb-chat', { detail: tab }));
@@ -83,6 +83,15 @@ export function Header({ onMenu }: { onMenu: () => void }) {
                   <Link to="/vip" className="dropdown-item">
                     <LuCrown size={16} /> VIP booster
                   </Link>
+                  <Link to="/stats" className="dropdown-item">
+                    <LuChartLine size={16} /> My stats
+                  </Link>
+                  <Link to="/rewards" className="dropdown-item">
+                    <LuSparkles size={16} /> Rewards
+                  </Link>
+                  <Link to="/referral" className="dropdown-item">
+                    <LuUsers size={16} /> Refer &amp; earn
+                  </Link>
                   <Link to="/wallet?tab=history" className="dropdown-item">
                     <LuHistory size={16} /> Transactions
                   </Link>
@@ -144,6 +153,19 @@ export function Sidebar({ collapsed, sports }: { collapsed: boolean; sports: Spo
         <Link to="/tips" className={`side-item${path === '/tips' ? ' active' : ''}`} title="Tips of the day">
           <LuLightbulb size={18} />
           <span>Tips of the day</span>
+        </Link>
+        <Link to="/rewards" className={`side-item rewards-link${path === '/rewards' ? ' active' : ''}`} title="Rewards">
+          <LuSparkles size={18} />
+          <span>Rewards</span>
+          <i className="side-dot" />
+        </Link>
+        <Link to="/tournament" className={`side-item${path === '/tournament' ? ' active' : ''}`} title="Weekly race">
+          <LuTrophy size={18} />
+          <span>Weekly race</span>
+        </Link>
+        <Link to="/referral" className={`side-item${path === '/referral' ? ' active' : ''}`} title="Refer & earn">
+          <LuUsers size={18} />
+          <span>Refer &amp; earn</span>
         </Link>
         <Link to="/vip" className={`side-item vip-link${path === '/vip' ? ' active' : ''}`} title="VIP booster">
           <LuCrown size={18} />

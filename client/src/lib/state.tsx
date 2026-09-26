@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api, refreshSession, setAccessToken, setSessionLostHandler } from './api';
+import { getOddsFormat, setOddsFormat } from './format';
 import { useLiveUpdates } from './live';
 import type { Pick, SportEvent, Outcome, User } from './types';
 
@@ -70,6 +71,13 @@ export const useAuth = () => useContext(AuthCtx);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  // the account's odds format wins once the player is known
+  useEffect(() => {
+    if (user?.oddsFormat && user.oddsFormat !== getOddsFormat()) {
+      setOddsFormat(user.oddsFormat);
+      window.dispatchEvent(new Event('wb-odds'));
+    }
+  }, [user?.oddsFormat]);
   const [ready, setReady] = useState(false);
   const [modal, setModal] = useState<AuthState['modal']>(null);
 
@@ -94,7 +102,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setModal(null);
       },
       async register(data) {
-        const d = await api<{ accessToken: string; user: User; emailError?: string | null }>('/auth/register', { body: data });
+        let ref: string | null = null;
+        try {
+          ref = localStorage.getItem('wb_ref');
+        } catch {
+          /* ignore */
+        }
+        const d = await api<{ accessToken: string; user: User; emailError?: string | null }>('/auth/register', { body: ref && !data.ref ? { ...data, ref } : data });
         rememberVerifyError(d.emailError ?? null);
         setAccessToken(d.accessToken);
         setUser(d.user);
@@ -130,11 +144,31 @@ interface SlipState {
   clear: () => void;
   update: (outcomeId: string, patch: Partial<Pick>) => void;
   replaceAll: (p: Pick[]) => void;
+  /** Quick Bet: tapping odds places a single straight away */
+  quick: { on: boolean; stake: number };
+  setQuick: (q: { on: boolean; stake: number }) => void;
+  quickBusy: string | null;
+  quickPlace: (ev: SportEvent, marketKey: string, o: Outcome) => void;
 }
 const SlipCtx = createContext<SlipState>(null as unknown as SlipState);
 export const useSlip = () => useContext(SlipCtx);
 
 const SLIP_KEY = 'wb_slip_v1';
+
+// invite links (?ref=CODE) are remembered until the visitor registers
+if (typeof window !== 'undefined') {
+  try {
+    const u = new URL(window.location.href);
+    const ref = u.searchParams.get('ref');
+    if (ref && /^[A-Za-z0-9]{3,32}$/.test(ref)) {
+      localStorage.setItem('wb_ref', ref.toUpperCase());
+      u.searchParams.delete('ref');
+      window.history.replaceState(window.history.state, '', u.pathname + u.search + u.hash);
+    }
+  } catch {
+    /* ignore */
+  }
+}
 export function SlipProvider({ children }: { children: ReactNode }) {
   const [picks, setPicks] = useState<Pick[]>(() => {
     try {
@@ -144,6 +178,44 @@ export function SlipProvider({ children }: { children: ReactNode }) {
     }
   });
   const [open, setOpen] = useState(false);
+  const { user, openAuth, setBalance } = useAuth();
+  const toast = useToast();
+  const [quick, setQuickState] = useState<{ on: boolean; stake: number }>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('wb_quickbet') ?? '') as { on: boolean; stake: number };
+    } catch {
+      return { on: false, stake: 5 };
+    }
+  });
+  const [quickBusy, setQuickBusy] = useState<string | null>(null);
+  const setQuick = (q: { on: boolean; stake: number }) => {
+    setQuickState(q);
+    try {
+      localStorage.setItem('wb_quickbet', JSON.stringify(q));
+    } catch {
+      /* ignore */
+    }
+  };
+  const quickPlace = async (ev: SportEvent, marketKey: string, o: Outcome) => {
+    if (!user) return openAuth('login');
+    if (quickBusy) return;
+    if (!(quick.stake > 0)) return toast('err', 'Set a Quick Bet stake first');
+    if (quick.stake > Number(user.balance)) return toast('err', 'Insufficient balance for Quick Bet');
+    setQuickBusy(o.id);
+    try {
+      const d = await api<{ balance: string }>('/bets', {
+        body: { mode: 'singles', acceptOddsChanges: 'higher', selections: [{ outcomeId: o.id, odds: o.price, stake: quick.stake }] },
+      });
+      setBalance(d.balance);
+      toast('ok', `⚡ Quick bet: $${quick.stake.toFixed(2)} on ${o.name} @ ${o.price.toFixed(2)} (${ev.homeTeam} v ${ev.awayTeam})`);
+    } catch (e) {
+      const err = e as { message?: string; code?: string };
+      if (err.code === 'EMAIL_UNVERIFIED') openAuth('verify');
+      toast('err', err.message ?? 'Quick bet failed');
+    } finally {
+      setQuickBusy(null);
+    }
+  };
   useEffect(() => {
     try {
       localStorage.setItem(SLIP_KEY, JSON.stringify(picks));
@@ -225,8 +297,12 @@ export function SlipProvider({ children }: { children: ReactNode }) {
       clear: () => setPicks([]),
       update: (id, patch) => setPicks((ps) => ps.map((p) => (p.outcomeId === id ? { ...p, ...patch } : p))),
       replaceAll: setPicks,
+      quick,
+      setQuick,
+      quickBusy,
+      quickPlace,
     }),
-    [picks, open]
+    [picks, open, quick, quickBusy, user?.id, user?.balance] // eslint-disable-line react-hooks/exhaustive-deps
   );
   return <SlipCtx.Provider value={value}>{children}</SlipCtx.Provider>;
 }

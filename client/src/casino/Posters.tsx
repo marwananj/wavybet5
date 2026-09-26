@@ -1,6 +1,8 @@
 import { useRef, type CSSProperties, type MouseEvent } from 'react';
 import { Link } from '../lib/router';
 import { GAMES, type GameMeta } from './meta';
+import { SymbolTile, THEMES } from './slots/symbols';
+import { useFavs } from '../lib/favs';
 
 /* Original poster illustrations — pure SVG, no external art. */
 
@@ -287,7 +289,127 @@ function HorseArt() {
   );
 }
 
+
+function BombArt() {
+  return (
+    <svg viewBox="0 0 200 200">
+      <Defs id="bmb" />
+      <defs>
+        <radialGradient id="bmb-body" cx="36%" cy="32%" r="70%">
+          <stop offset="0" stopColor="#7a8398" />
+          <stop offset=".35" stopColor="#2c3242" />
+          <stop offset="1" stopColor="#07080c" />
+        </radialGradient>
+        <radialGradient id="bmb-fl" cx="50%" cy="60%" r="50%">
+          <stop offset="0" stopColor="#fff" />
+          <stop offset=".35" stopColor="#ffe066" />
+          <stop offset=".7" stopColor="#ff8a1f" />
+          <stop offset="1" stopColor="#ff3d00" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <g filter="url(#bmb-sh)">
+        <circle cx="96" cy="120" r="58" fill="url(#bmb-body)" />
+        <ellipse cx="78" cy="96" rx="16" ry="10" fill="#fff" opacity=".35" transform="rotate(-30 78 96)" />
+        <path d="M70 124c7-10 13-10 19 0s13 10 19 0 13-10 21-4" fill="none" stroke="#3ad0ff" strokeWidth="6" strokeLinecap="round" />
+        <rect x="82" y="56" width="28" height="18" rx="4" fill="url(#bmb-gold)" />
+        <path d="M96 56 C 94 40, 118 40, 116 26 C 114 16, 126 12, 132 6" fill="none" stroke="#cfa66b" strokeWidth="5" strokeLinecap="round" />
+        <circle cx="132" cy="8" r="14" fill="url(#bmb-fl)" />
+        {[0, 60, 120, 180, 240, 300].map((a) => (
+          <line key={a} x1="132" y1="8" x2={132 + Math.cos((a * Math.PI) / 180) * 22} y2={8 + Math.sin((a * Math.PI) / 180) * 22} stroke="#ffe28a" strokeWidth="2" strokeLinecap="round" />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
+function LimboArt() {
+  return (
+    <svg viewBox="0 0 200 200">
+      <Defs id="lb" />
+      <g filter="url(#lb-sh)">
+        {[70, 52, 34].map((r, i) => (
+          <circle key={r} cx="100" cy="104" r={r} fill="none" stroke="#5eead4" strokeOpacity={0.25 + i * 0.2} strokeWidth="4" />
+        ))}
+        <text x="100" y="118" textAnchor="middle" fontSize="44" fontWeight="900" fill="url(#lb-g1)" fontFamily="Montserrat, sans-serif">
+          99×
+        </text>
+        <path d="M100 20 l10 22 h-20z" fill="url(#lb-gold)" />
+      </g>
+    </svg>
+  );
+}
+
+function PlinkoArt() {
+  const rows = [3, 4, 5, 6];
+  return (
+    <svg viewBox="0 0 200 200">
+      <Defs id="pk" />
+      <g filter="url(#pk-sh)">
+        {rows.map((n, r) =>
+          Array.from({ length: n }, (_, i) => <circle key={`${r}-${i}`} cx={100 + (i - (n - 1) / 2) * 26} cy={50 + r * 26} r="5" fill="url(#pk-g1)" />)
+        )}
+        <circle cx="113" cy="76" r="10" fill="#ff5fa2" stroke="#fff" strokeWidth="3" />
+        {['#ff3b3b', '#ff8a1f', '#ffd24a', '#ff8a1f', '#ff3b3b'].map((c, i) => (
+          <rect key={i} x={40 + i * 25} y="150" width="21" height="16" rx="4" fill={c} />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
+function SlotArt({ id, syms }: { id: string; syms: number[] }) {
+  const t = THEMES[id];
+  return (
+    <div className="slot-art">
+      <div className="slot-art-frame">
+        {syms.map((s, i) => (
+          <SymbolTile key={i} theme={t} s={s} />
+        ))}
+      </div>
+      <span className="slot-art-lever" />
+    </div>
+  );
+}
+
+function TvArt({ kind }: { kind: 'dice' | 'war' }) {
+  return (
+    <svg viewBox="0 0 200 200">
+      <Defs id={`tv${kind}`} />
+      <g filter={`url(#tv${kind}-sh)`}>
+        <rect x="30" y="40" width="140" height="100" rx="14" fill="#0b0d18" stroke={`url(#tv${kind}-gold)`} strokeWidth="5" />
+        <rect x="38" y="48" width="124" height="84" rx="8" fill={kind === 'dice' ? '#1e3a8a' : '#064e3b'} />
+        {kind === 'dice' ? (
+          <>
+            <rect x="52" y="66" width="42" height="42" rx="9" fill="#ef4444" />
+            <rect x="106" y="66" width="42" height="42" rx="9" fill="#3b82f6" />
+            {[[62, 76], [84, 98], [73, 87]].map(([x, y], i) => <circle key={i} cx={x} cy={y} r="4.5" fill="#fff" />)}
+            {[[116, 76], [138, 76], [116, 98], [138, 98]].map(([x, y], i) => <circle key={`b${i}`} cx={x} cy={y} r="4.5" fill="#fff" />)}
+          </>
+        ) : (
+          <>
+            <rect x="56" y="60" width="38" height="54" rx="6" fill="#fff" />
+            <text x="75" y="95" textAnchor="middle" fontSize="24" fontWeight="900" fill="#e11d48">K</text>
+            <rect x="106" y="60" width="38" height="54" rx="6" fill="#fff" />
+            <text x="125" y="95" textAnchor="middle" fontSize="24" fontWeight="900" fill="#111">7</text>
+          </>
+        )}
+        <circle cx="152" cy="56" r="5" fill="#ef4444" />
+        <rect x="80" y="146" width="40" height="8" rx="4" fill={`url(#tv${kind}-gold)`} />
+      </g>
+    </svg>
+  );
+}
+
 const ART: Record<string, () => JSX.Element> = {
+  'tv-dice': () => <TvArt kind="dice" />,
+  'tv-war': () => <TvArt kind="war" />,
+  'slot-fruits': () => <SlotArt id="slot-fruits" syms={[6, 6, 6]} />,
+  'slot-gems': () => <SlotArt id="slot-gems" syms={[4, 7, 4]} />,
+  'slot-pharaoh': () => <SlotArt id="slot-pharaoh" syms={[6, 8, 6]} />,
+  plinko: PlinkoArt,
+  bomb: BombArt,
+  limbo: LimboArt,
+  videopoker: () => <CardsArt id="vp" cards={[['J', '♣', false], ['J', '♥', true], ['Q', '♠', false]]} />,
   dice: DiceArt,
   roulette: RouletteArt,
   blackjack: () => <CardsArt id="bj" cards={[['A', '♠', false], ['K', '♥', true]]} />,
@@ -301,6 +423,31 @@ const ART: Record<string, () => JSX.Element> = {
   horses: HorseArt,
   holdem: () => <CardsArt id="he" cards={[['A', '♦', true], ['A', '♣', false], ['K', '♦', true]]} />,
 };
+
+function PosterFav({ id }: { id: string }) {
+  const f = useFavs('games');
+  const on = f.has(id);
+  return (
+    <button
+      type="button"
+      className={`poster-fav${on ? ' on' : ''}`}
+      aria-label={on ? 'Remove from favourites' : 'Add to favourites'}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        f.toggle(id);
+      }}
+    >
+      {on ? '★' : '☆'}
+    </button>
+  );
+}
+
+/** just the illustration of a game's poster */
+export function PosterArt({ id }: { id: string }) {
+  const Art = ART[id];
+  return Art ? <Art /> : null;
+}
 
 export function GamePoster({ g, isNew = true }: { g: GameMeta; isNew?: boolean }) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -333,6 +480,7 @@ export function GamePoster({ g, isNew = true }: { g: GameMeta; isNew?: boolean }
           <Art />
         </span>
         {isNew && <span className="poster-new">NEW</span>}
+        <PosterFav id={g.id} />
         <span className="poster-meta">
           <small>WAVY ORIGINALS</small>
           <b>{g.name}</b>
@@ -343,10 +491,10 @@ export function GamePoster({ g, isNew = true }: { g: GameMeta; isNew?: boolean }
   );
 }
 
-export function PosterGrid() {
+export function PosterGrid({ games = GAMES }: { games?: GameMeta[] }) {
   return (
     <div className="poster-grid">
-      {GAMES.map((g) => (
+      {games.map((g) => (
         <GamePoster key={g.id} g={g} />
       ))}
     </div>

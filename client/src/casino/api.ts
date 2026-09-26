@@ -1,4 +1,5 @@
 import { api } from '../lib/api';
+import { recordRound } from './session';
 
 export interface Fair {
   serverSeedHash: string;
@@ -41,12 +42,15 @@ export interface CasinoConfig {
   wheel: { tables: Record<string, Record<string, number[]>> };
   tower: { floors: number; levels: Record<string, { tiles: number; safe: number; ladder: number[] }> };
   holdem: { hands: string[]; ante: number[]; aa: number[] };
+  bomb?: { rate: number; max: number; edge: number };
+  limbo?: { min: number; max: number; edge: number };
 }
 
+const rec = <T extends { round: Round }>(p: Promise<T>) => p.then((d) => (recordRound(d.round), d));
 export const casino = {
-  play: <R>(game: string, body: object) => api<PlayRes<R>>(`/casino/play/${game}`, { body }),
-  start: <V>(game: string, body: object) => api<StateRes<V>>(`/casino/${game}/start`, { body }),
-  act: <V>(game: string, id: string, action: string, body: object = {}) => api<StateRes<V>>(`/casino/${game}/${id}/${action}`, { body }),
+  play: <R>(game: string, body: object) => rec(api<PlayRes<R>>(`/casino/play/${game}`, { body })),
+  start: <V>(game: string, body: object) => rec(api<StateRes<V>>(`/casino/${game}/start`, { body })),
+  act: <V>(game: string, id: string, action: string, body: object = {}) => rec(api<StateRes<V>>(`/casino/${game}/${id}/${action}`, { body })),
   active: <V>(game: string) => api<{ round: Round<V> | null }>(`/casino/${game}/active`),
   rounds: (game: string) => api<{ rounds: Round[] }>(`/casino/rounds?game=${game}&limit=15`),
   horseCard: <C>() => api<{ card: C; rtp: number }>('/casino/horses/card'),

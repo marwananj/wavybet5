@@ -1,3 +1,4 @@
+import { FavStar } from '../components/EventCard';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { LuChevronDown, LuRadio, LuSearch, LuVolume2, LuVolumeX } from 'react-icons/lu';
 import { api } from '../lib/api';
@@ -324,6 +325,7 @@ export function EventPage({ id }: { id: string }) {
       <section className="match-hero">
         <div className="match-league">
           <SportIcon sportKey={ev.sportKey} size={15} /> {groupTitle} · {ev.sportTitle}
+          <FavStar id={ev.id} size={17} />
           <button type="button" className={`icon-btn sound-btn sm ${muted ? 'off' : ''}`} onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute goal sounds' : 'Mute goal sounds'}>
             {muted ? <LuVolumeX size={16} /> : <LuVolume2 size={16} />}
           </button>

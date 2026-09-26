@@ -8,11 +8,13 @@ import type { Sport, SportEvent } from '../lib/types';
 import { EventCard, FeaturedCard } from '../components/EventCard';
 import { SportStrip } from '../components/Layout';
 import { OriginalsRow } from '../casino/Lobby';
+import { Trending } from '../components/Trending';
 import { Empty, Skeleton, SportIcon } from '../components/ui';
 import { FirstDepositPoster } from '../components/FirstDepositPromo';
 import { BetFeed } from '../components/BetFeed';
 import { TipCard, useTips } from './Tips';
-import { LuLightbulb } from 'react-icons/lu';
+import { LuLightbulb, LuStar } from 'react-icons/lu';
+import { useFavs } from '../lib/favs';
 
 const SLIDES: { kicker: string; title: string; text: string; cta: string; to: string; tone: string; open?: boolean }[] = [
   {
@@ -120,7 +122,9 @@ function Carousel({ events }: { events: SportEvent[] }) {
 export function HomePage({ sports }: { sports: Sport[] }) {
   const { user } = useAuth();
   const { search, navigate } = useRouter();
-  const tab = (search.get('tab') as 'popular' | 'live' | 'upcoming') ?? 'popular';
+  const tab = (search.get('tab') as 'popular' | 'live' | 'upcoming' | 'mine') ?? 'popular';
+  const favs = useFavs('events');
+  const favKey = favs.list.join(',');
   const [featured, setFeatured] = useState<SportEvent[] | null>(null);
   const [events, setEvents] = useState<SportEvent[] | null>(null);
   const groups = useMemo(() => Array.from(new Map(sports.map((s) => [s.group, s])).values()), [sports]);
@@ -138,6 +142,13 @@ export function HomePage({ sports }: { sports: Sport[] }) {
   }, [groups, group]);
   useEffect(() => {
     setEvents(null);
+    if (tab === 'mine') {
+      if (!favKey) return setEvents([]);
+      const loadMine = () => api<{ events: SportEvent[] }>(`/events?ids=${encodeURIComponent(favKey)}`).then((d) => setEvents(d.events)).catch(() => setEvents([]));
+      loadMine();
+      const t = setInterval(loadMine, 30_000);
+      return () => clearInterval(t);
+    }
     const status = tab === 'live' ? 'live' : 'upcoming';
     const qs = new URLSearchParams({ status, limit: '40', ...(group && tab !== 'live' ? { group } : {}) });
     const load = () =>
@@ -147,7 +158,7 @@ export function HomePage({ sports }: { sports: Sport[] }) {
     load();
     const t = setInterval(load, tab === 'live' ? 20_000 : 60_000);
     return () => clearInterval(t);
-  }, [tab, group]);
+  }, [tab, group, tab === 'mine' ? favKey : '']); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="page">
@@ -157,6 +168,7 @@ export function HomePage({ sports }: { sports: Sport[] }) {
           ['popular', 'Popular', <LuFlame key="f" size={15} />],
           ['live', 'Live', <LuRadio key="l" size={15} />],
           ['upcoming', 'Upcoming', <LuClock key="u" size={15} />],
+          ['mine', <>My<span className="hide-xs"> matches</span>{favs.list.length ? ` · ${favs.list.length}` : ''}</>, <LuStar key="m" size={15} />],
         ].map(([k, label, icon]) => (
           <button key={k as string} className={tab === k ? 'on' : ''} onClick={() => navigate(`/?tab=${k}`, true)}>
             {icon}
@@ -168,10 +180,11 @@ export function HomePage({ sports }: { sports: Sport[] }) {
       {tab === 'popular' && <Hero />}
       {tab === 'popular' && !user?.firstDepositBonusClaimed && <FirstDepositPoster />}
       {tab === 'popular' && <OriginalsRow />}
+      {tab === 'popular' && <Trending />}
       {tab === 'popular' && <TipsStrip />}
       {tab === 'popular' && (featured === null ? <div className="carousel"><Skeleton h={190} count={3} /></div> : featured.length > 0 && <Carousel events={featured} />)}
 
-      {tab !== 'live' && (
+      {tab !== 'live' && tab !== 'mine' && (
         <div className="chips" role="tablist">
           {groups.map((s) => (
             <button key={s.group} className={`chip${group === s.group ? ' on' : ''}`} onClick={() => setGroup(s.group)}>
@@ -185,6 +198,8 @@ export function HomePage({ sports }: { sports: Sport[] }) {
       <div className="grid-events">
         {events === null ? (
           <Skeleton h={170} count={6} />
+        ) : events.length === 0 && tab === 'mine' ? (
+          <Empty icon={<LuStar size={34} />} title="No favourite matches yet" text="Tap the ☆ on any match to follow it — you'll get goal alerts and find it here." />
         ) : events.length === 0 ? (
           <Empty
             icon={tab === 'live' ? <LuRadio size={34} /> : <LuZap size={34} />}

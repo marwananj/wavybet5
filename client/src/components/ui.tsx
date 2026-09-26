@@ -95,12 +95,13 @@ export function OddsButton({ ev, marketKey, o, label, compact, locked }: { ev: S
   const isLocked = locked || o.suspended || ev.bettingOpen === false;
   return (
     <button
-      className={`odds-btn${active ? ' active' : ''}${compact ? ' compact' : ''}${move ? ` move-${move}` : ''}${isLocked ? ' locked' : ''}`}
+      className={`odds-btn${active ? ' active' : ''}${compact ? ' compact' : ''}${move ? ` move-${move}` : ''}${isLocked ? ' locked' : ''}${slip.quick.on ? ' quick' : ''}${slip.quickBusy === o.id ? ' placing' : ''}`}
       disabled={isLocked && !active}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
         if (isLocked && !active) return;
+        if (slip.quick.on && !active) return slip.quickPlace(ev, marketKey, o);
         slip.toggle(ev, marketKey, o);
       }}
       aria-pressed={active}

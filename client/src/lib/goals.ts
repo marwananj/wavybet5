@@ -3,6 +3,7 @@ import { sfx } from '../casino/sound';
 import { api } from './api';
 import { subscribeLive } from './live';
 import type { SportEvent } from './types';
+import { isFav } from './favs';
 
 /**
  * Goal alerts. Watches every live score pushed by the server; when a score goes up it:
@@ -78,7 +79,7 @@ export function useGoalAlerts(toast: Toast, loggedIn: boolean) {
             id: e.id, side, homeTeam: e.homeTeam, awayTeam: e.awayTeam, homeScore: e.homeScore, awayScore: e.awayScore, minute: e.liveMinute ?? null,
           };
           window.dispatchEvent(new CustomEvent<GoalDetail>('wb-goal', { detail }));
-          if (viewing.has(e.id) || mine.has(e.id) || openBetEvents.has(e.id)) {
+          if (viewing.has(e.id) || mine.has(e.id) || openBetEvents.has(e.id) || isFav('events', e.id)) {
             sfx.goal();
             toast('ok', `⚽ GOAL! ${e.homeTeam} ${e.homeScore}–${e.awayScore} ${e.awayTeam}${e.liveMinute != null ? ` (${e.liveMinute}')` : ''}`);
           }
