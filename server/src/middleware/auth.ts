@@ -41,3 +41,16 @@ export function requireAdmin(req: Request, _res: Response, next: NextFunction) {
   if (req.user?.role !== 'ADMIN') return next(new HttpError(403, 'Admin only'));
   next();
 }
+
+/** attach req.user when a valid token is sent, but never reject the request */
+export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
+  const h = req.headers.authorization;
+  if (!h?.startsWith('Bearer ')) return next();
+  try {
+    const payload = jwt.verify(h.slice(7), config.jwtAccessSecret) as { sub: string; role: AuthUser['role'] };
+    req.user = { id: payload.sub, role: payload.role };
+  } catch {
+    /* anonymous */
+  }
+  next();
+}

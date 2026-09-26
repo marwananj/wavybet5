@@ -73,6 +73,18 @@ model User {
   firstDepositBonusAt DateTime?
   bonusWagerLeft    Decimal        @default(0) @db.Decimal(18, 2)
   chatMutedUntil    DateTime?
+  /// referral programme: own invite code, who invited this player, commission accrued / already paid
+  referralCode      String?        @unique
+  referredById      String?
+  referralEarned    Decimal        @default(0) @db.Decimal(18, 4)
+  referralPaid      Decimal        @default(0) @db.Decimal(18, 2)
+  /// daily reward wheel + weekly cashback
+  lastSpinAt        DateTime?
+  cashbackWeek      String?
+  /// privacy: show as "Hidden" in the public bet feed / leaderboards
+  hideInFeed        Boolean        @default(false)
+  /// display preferences
+  oddsFormat        String         @default("decimal")
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   refreshTokens     RefreshToken[]
@@ -81,6 +93,9 @@ model User {
   fairSeeds         FairSeed[]
   casinoRounds      CasinoRound[]
   chatMessages      ChatMessage[]
+  missionClaims     MissionClaim[]
+
+  @@index([referredById])
 }
 
 model RefreshToken {
@@ -299,4 +314,59 @@ model ChatMessage {
 
   @@index([room, createdAt])
   @@index([threadUserId, createdAt])
+}
+
+/// shareable betslip ("booking code")
+model SlipCode {
+  code       String   @id
+  outcomeIds String[]
+  createdBy  String?
+  uses       Int      @default(0)
+  createdAt  DateTime @default(now())
+}
+
+/// a daily mission reward that has been collected (one per mission per day)
+model MissionClaim {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  day       String
+  missionId String
+  reward    Decimal  @db.Decimal(18, 2)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, day, missionId])
+}
+
+/// weekly tournament prizes (paid once per week + rank)
+model TournamentPayout {
+  id        String   @id @default(cuid())
+  week      String
+  rank      Int
+  userId    String
+  wagered   Decimal  @db.Decimal(18, 2)
+  amount    Decimal  @db.Decimal(18, 2)
+  createdAt DateTime @default(now())
+
+  @@unique([week, rank])
+  @@index([userId])
+}
+
+/// Wavy TV — bets on shared, scheduled draws (everyone sees the same result)
+model TvBet {
+  id        String    @id @default(cuid())
+  userId    String
+  game      String
+  round     Int
+  market    String
+  stake     Decimal   @db.Decimal(18, 2)
+  odds      Decimal   @db.Decimal(10, 2)
+  /// OPEN | WON | LOST
+  status    String    @default("OPEN")
+  payout    Decimal   @default(0) @db.Decimal(18, 2)
+  createdAt DateTime  @default(now())
+  settledAt DateTime?
+
+  @@index([status, game, round])
+  @@index([userId, createdAt])
 }

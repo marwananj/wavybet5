@@ -17,6 +17,10 @@ import adminRoutes from './routes/admin';
 import casinoRoutes from './routes/casino';
 import vipRoutes from './routes/vip';
 import socialRoutes from './routes/social';
+import slipRoutes from './routes/slips';
+import rewardRoutes from './routes/rewards';
+import tvRoutes from './routes/tv';
+import { startTv } from './services/tv';
 import tipsRoutes from './routes/tips';
 
 const app = express();
@@ -37,6 +41,9 @@ app.use('/api/casino', casinoRoutes);
 app.use('/api/vip', vipRoutes);
 app.use('/api', socialRoutes);
 app.use('/api', tipsRoutes);
+app.use('/api', slipRoutes);
+app.use('/api/rewards', rewardRoutes);
+app.use('/api/tv', tvRoutes);
 app.use('/api', eventRoutes);
 
 // Serve the built frontend when it sits next to the server (single-container deploy)
@@ -51,4 +58,5 @@ app.use(errorHandler);
 app.listen(config.port, () => {
   console.log(`WavyBet API listening on :${config.port}`);
   startJobs();
+  startTv();
 });

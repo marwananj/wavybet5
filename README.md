@@ -63,6 +63,26 @@ Pre-match and in-play (API-Football), each only when the feed prices it:
 - **Tips of the day:** `/tips` — strongest-rated picks from margin-free prices plus a 3-leg acca, refreshed every 30 min.
 - **Bet feed, community chat & live support:** chat is rate-limited with link filter and admin mute/delete; support threads are answered from *Admin → Support*.
 
+## Slots, Wavy TV & social betting
+
+- **Wavy Slots** (`/casino/slot-fruits`, `slot-gems`, `slot-pharaoh`): original 5×3, 20-line machines with wilds, scatter-triggered free spins (×2 / ×3, retriggers, capped at 100) and animated 3D reels, autoplay, turbo and paytable. One provably fair float per reel per spin; free spins are resolved in the same round. RTP ≈ 96% each (measured over 2M simulated spins per machine; `PAY_SCALE` in `server/src/casino/engine/slots.ts` holds the tuned factors).
+- **Wavy TV** (`/casino/tv-dice`, `/casino/tv-war`): shared live draws every 40 s (27 s betting window) — Dice Duel and Card War. Everyone sees the same result. Results are `HMAC_SHA256(daySeed, game:round)`; each UTC day's seed hash is public (`/api/tv/fair`) and the seed is revealed the next day. Bets live in `TvBet` and are settled every 2 s by the server (idempotent). RTP ≈ 96–96.7%.
+- **Live bet feed:** every bet appears as it is placed (sports bets while open, then again with the result) with the player's name and VIP tier; tap a name for their player card. Players can hide their name (Account → Preferences). Open sports bets can be **copied** into your betslip.
+- **Trending bets:** the most-backed open selections of the last 24 h on the home page.
+- **Odds format:** Decimal / Fractional / American (Account → Preferences or the betslip), saved to the account.
+- **Admin → Bets:** every sports bet by every player with filters (status, type, player / e-mail / match, period, min stake), totals (staked, paid, GGR, open liability) and the matches with the biggest open exposure.
+
+## Rewards, sharing & new Originals
+
+- **Betslip booking codes:** the share button in the betslip saves the picks as a code (e.g. `WB7K2QX9`) plus a link `/?slip=CODE`; anyone can load it (live prices) from the empty betslip or by opening the link. WhatsApp / Telegram / native share buttons included.
+- **Referral programme** (`/referral`): every player gets an invite link `/?ref=CODE`; the referrer earns `REFERRAL_RATE` of everything referred players wager, claimable from `REFERRAL_MIN_CLAIM`.
+- **Daily reward wheel** (`/rewards`): one spin per 24 h, prizes $0.10–$25 (EV ≈ $0.44), 1× wagering. Requires a verified e-mail, a completed deposit and `DAILY_SPIN_MIN_WAGER` wagered in the last 7 days.
+- **Weekly cashback:** `CASHBACK_RATE` of last ISO week's net loss (settled bets + Originals), from `CASHBACK_MIN_LOSS`, capped at `CASHBACK_MAX`, no wagering, claimed once per week.
+- **Daily missions:** 5 missions computed from the day's activity (UTC), small bonus rewards with 1× wagering.
+- **Weekly race** (`/tournament`): wager leaderboard Monday–Sunday UTC; top 10 split `TOURNAMENT_POOL` (30/20/12/9/7/6/5/4/4/3 %). Paid automatically (idempotent) the first time the page is loaded after the week ends. Admin accounts never win prizes.
+- **New Originals:** Wavy Bomb (3D crash-style: cash out before the blast, server-clock authoritative, optional auto cash-out, 99% RTP), Limbo (99% RTP) and Video Poker (Jacks or Better 9/6, 99.54% RTP with optimal holds).
+- **Roulette:** live croupier with voice calls, realistic landing (deflector hit, 3–5 decaying hops over the frets, in-pocket rattle) and a TV close-up that grows behind the dealer.
+
 ## Wavy Originals (casino)
 
 Twelve in-house games at `/casino`, all on the same wallet and ledger (`CASINO_BET` / `CASINO_WIN` transactions):

@@ -18,6 +18,11 @@ import { HORSE_RTP, makeCard, playHorses, type HorseBet } from '../casino/engine
 import { playWheel, WHEEL_RISKS, WHEEL_SEGMENTS, WHEEL_TABLES, type WheelRisk } from '../casino/engine/wheel';
 import { TOWER_FLOORS, TOWER_LEVELS, towerCashout, towerLadder, towerMultiplier, towerPick, towerStart, towerView, type TowerLevel, type TowerState } from '../casino/engine/tower';
 import { AA_PAYS, ANTE_PAYS, HAND_NAMES, holdemAct, holdemOutcome, holdemStart, holdemView, type HoldemState } from '../casino/engine/holdem';
+import { PLINKO_RISKS, PLINKO_ROWS, PLINKO_TABLES, playPlinko, type PlinkoRisk } from '../casino/engine/plinko';
+import { LIMBO_MAX, LIMBO_MIN, playLimbo } from '../casino/engine/limbo';
+import { MACHINES, machineInfo, slotInstant } from '../casino/engine/slots';
+import { BOMB_MAX, BOMB_RATE, bombCashout, bombStart, bombUpdate, bombView, type BombState } from '../casino/engine/bomb';
+import { VP_PAYS, vpDraw, vpStart, vpView, type VpState } from '../casino/engine/videopoker';
 import {
   actStateful, activeSeed, GAME_NAMES, getActive, playInstant, publicRound, rotateSeed, startStateful, type StatefulDef,
 } from '../casino/service';
@@ -42,6 +47,11 @@ r.get('/config', (_req, res) => {
     wheel: { tables: WHEEL_TABLES },
     tower: { floors: TOWER_FLOORS, levels: Object.fromEntries(Object.entries(TOWER_LEVELS).map(([k, v]) => [k, { ...v, ladder: towerLadder(k as TowerLevel) }])) },
     holdem: { hands: HAND_NAMES, ante: ANTE_PAYS, aa: AA_PAYS },
+    plinko: { rows: PLINKO_ROWS, risks: PLINKO_RISKS, tables: PLINKO_TABLES },
+    limbo: { min: LIMBO_MIN, max: LIMBO_MAX, edge: 0.01 },
+    slots: machineInfo(),
+    bomb: { rate: BOMB_RATE, max: BOMB_MAX, edge: 0.01 },
+    videopoker: { paytable: VP_PAYS },
     chicken: Object.fromEntries(Object.entries(CHICKEN_LEVELS).map(([k, v]) => [k, { ...v, ladder: chickenLadder(k as ChickenLevel) }])),
   });
 });
@@ -106,6 +116,26 @@ r.get(
       take: q.limit,
     });
     res.json({ rounds: rounds.map((x) => publicRound(x, x.seed)) });
+  })
+);
+
+/** biggest wins & highest multipliers in the last 24 h (public, usernames masked) */
+let bigCache: { at: number; data: unknown } | null = null;
+r.get(
+  '/bigwins',
+  asyncH(async (_req, res) => {
+    if (bigCache && Date.now() - bigCache.at < 30_000) return res.json(bigCache.data);
+    const since = new Date(Date.now() - 86_400_000);
+    const where = { finishedAt: { gte: since }, status: { in: ['WON', 'CASHED'] } };
+    const [top, lucky] = await Promise.all([
+      prisma.casinoRound.findMany({ where, orderBy: { payout: 'desc' }, take: 10, include: { user: { select: { username: true } } } }),
+      prisma.casinoRound.findMany({ where: { ...where, stake: { gte: 0.5 } }, orderBy: { multiplier: 'desc' }, take: 10, include: { user: { select: { username: true } } } }),
+    ]);
+    const mask = (n: string) => (n.length <= 3 ? n[0] + '**' : n.slice(0, 2) + '***' + n.slice(-1));
+    const row = (x: (typeof top)[number]) => ({ id: x.id, game: x.game, gameName: GAME_NAMES[x.game] ?? x.game, user: mask(x.user.username), stake: Number(x.stake), payout: Number(x.payout), multiplier: Number(x.multiplier), at: x.finishedAt });
+    const data = { biggest: top.map(row), luckiest: lucky.map(row) };
+    bigCache = { at: Date.now(), data };
+    res.json(data);
   })
 );
 
@@ -184,8 +214,26 @@ r.post(
         out = await playInstant(uid, game, total, (rng, ctx) => playHorses({ bets: b.bets as HorseBet[], cardId: b.cardId }, makeCard(ctx.clientSeed, ctx.nonce), rng));
         break;
       }
-      default:
+      case 'plinko': {
+        const b = z
+          .object({ stake, rows: z.number().int().refine((n) => (PLINKO_ROWS as readonly number[]).includes(n)), risk: z.enum(PLINKO_RISKS as unknown as [PlinkoRisk, ...PlinkoRisk[]]) })
+          .parse(req.body);
+        out = await playInstant(uid, game, b.stake, (rng) => playPlinko(b, rng));
+        break;
+      }
+      case 'limbo': {
+        const b = z.object({ stake, target: z.number().min(LIMBO_MIN).max(LIMBO_MAX) }).parse(req.body);
+        out = await playInstant(uid, game, b.stake, (rng) => playLimbo(b, rng));
+        break;
+      }
+      default: {
+        if (MACHINES[game]) {
+          const b = z.object({ stake }).parse(req.body);
+          out = await playInstant(uid, game, b.stake, (rng) => slotInstant(game, rng));
+          break;
+        }
         throw new HttpError(404, 'Unknown game');
+      }
     }
     res.json(out);
   })
@@ -267,7 +315,35 @@ const holdem: StatefulDef<HoldemState, { aaUnits: number }> = {
   view: (s) => holdemView(s),
 };
 
-const DEFS: Record<string, StatefulDef<any, any>> = { blackjack, hilo, chicken, tower, holdem };
+const bomb: StatefulDef<BombState, { auto?: number | null }> = {
+  start: (p, rng) => bombStart(p.auto ?? null, rng),
+  act: (s, action) => {
+    if (action === 'tick') bombUpdate(s);
+    else if (action === 'cashout') bombCashout(s);
+    else throw new HttpError(400, 'Unknown action');
+    return {};
+  },
+  isFinished: (s) => s.finished,
+  settle: (s) => (s.cashedAt ? { stakeUnits: 1, payoutUnits: s.cashedAt, status: 'CASHED' } : { stakeUnits: 1, payoutUnits: 0, status: 'LOST' }),
+  view: (s) => bombView(s),
+};
+
+const videopoker: StatefulDef<VpState> = {
+  start: (_p, rng) => vpStart(rng),
+  act: (s, action, p) => {
+    if (action === 'draw') vpDraw(s, p.held);
+    else throw new HttpError(400, 'Unknown action');
+    return {};
+  },
+  isFinished: (s) => s.finished,
+  settle: (s) => {
+    const pays = s.result?.pays ?? 0;
+    return { stakeUnits: 1, payoutUnits: pays, status: pays > 1 ? 'WON' : pays === 1 ? 'PUSH' : 'LOST' };
+  },
+  view: (s) => vpView(s),
+};
+
+const DEFS: Record<string, StatefulDef<any, any>> = { blackjack, hilo, chicken, tower, holdem, bomb, videopoker };
 const def = (game: string) => {
   const d = DEFS[game];
   if (!d) throw new HttpError(404, 'Unknown game');
@@ -290,15 +366,25 @@ r.post(
     const game = req.params.game;
     const d = def(game);
     const b = z
-      .object({ stake, level: z.enum(['easy', 'medium', 'hard', 'expert']).optional(), aa: z.number().min(0).max(config.casinoMaxStake).optional() })
+      .object({
+        stake,
+        level: z.enum(['easy', 'medium', 'hard', 'expert']).optional(),
+        aa: z.number().min(0).max(config.casinoMaxStake).optional(),
+        auto: z.number().min(1.01).max(BOMB_MAX).nullable().optional(),
+      })
       .parse(req.body);
+    if (game === 'bomb') {
+      // a bomb left burning (closed tab) is settled on the server clock before a new one starts
+      const prev = await prisma.casinoRound.findFirst({ where: { userId: req.user!.id, game, status: 'ACTIVE' }, select: { id: true } });
+      if (prev) await actStateful(req.user!.id, game, d, prev.id, 'tick', {});
+    }
     if ((game === 'chicken' || game === 'tower') && !b.level) throw new HttpError(400, 'Choose a difficulty');
     let aaUnits = 0;
     if (game === 'holdem' && b.aa && b.aa > 0) {
       if (b.aa < config.casinoMinStake) throw new HttpError(400, `Minimum AA Bonus is $${config.casinoMinStake}`);
       aaUnits = Math.round(b.aa * 100) / Math.round(b.stake * 100);
     }
-    res.json(await startStateful(req.user!.id, game, d, b.stake, { level: b.level, aaUnits }));
+    res.json(await startStateful(req.user!.id, game, d, b.stake, { level: b.level, aaUnits, auto: b.auto ?? null }));
   })
 );
 

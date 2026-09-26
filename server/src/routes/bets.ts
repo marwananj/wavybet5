@@ -1,3 +1,4 @@
+import { accaInsured } from '../services/settlement';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
@@ -11,6 +12,11 @@ import { BuilderError, priceBuilder, type Book } from '../services/builder';
 import { addWager } from '../services/rewards';
 
 const r = Router();
+
+/** public rules shown in the betslip */
+r.get('/rules', (_req, res) => {
+  res.json({ accaInsurance: { minLegs: config.accaInsMinLegs, minOdds: config.accaInsMinOdds, max: config.accaInsMax } });
+});
 const betLimiter = rateLimit({ windowMs: 60_000, limit: 40 });
 
 const placeSchema = z.object({
@@ -290,18 +296,114 @@ r.post(
 
 function serializeBet(b: {
   id: string; type: string; stake: unknown; totalOdds: unknown; potentialPayout: unknown; payout: unknown; status: string;
-  createdAt: Date; settledAt: Date | null; cashedOutAt?: Date | null;
+  createdAt: Date; settledAt: Date | null; cashedOutAt?: Date | null; insurancePaid?: unknown;
   selections: { id: string; eventId: string; marketKey: string; outcomeName: string; odds: unknown; status: string; eventLabel: string; sportTitle: string; commenceTime: Date; early?: boolean; point?: unknown }[];
 }) {
   return {
     id: b.id, type: b.type, stake: String(b.stake), totalOdds: String(b.totalOdds), potentialPayout: String(b.potentialPayout),
     payout: b.payout == null ? null : String(b.payout), status: b.status, createdAt: b.createdAt, settledAt: b.settledAt, cashedOutAt: b.cashedOutAt ?? null,
+    insured: accaInsured(b), insurancePaid: b.insurancePaid == null ? null : String(b.insurancePaid),
     selections: b.selections.map((s) => ({
       id: s.id, eventId: s.eventId, marketKey: s.marketKey, outcomeName: s.outcomeName, odds: String(s.odds), status: s.status,
       eventLabel: s.eventLabel, sportTitle: s.sportTitle, commenceTime: s.commenceTime, early: !!s.early,
     })),
   };
 }
+
+/** personal betting stats: P/L curve, ROI, win rate, by sport, Originals by game */
+r.get(
+  '/stats',
+  requireAuth,
+  asyncH(async (req, res) => {
+    const { days } = z.object({ days: z.coerce.number().int().min(0).max(3650).default(30) }).parse(req.query);
+    const since = days > 0 ? new Date(Date.now() - days * 86_400_000) : new Date(0);
+    const uid = req.user!.id;
+    const [bets, rounds, open] = await Promise.all([
+      prisma.bet.findMany({
+        where: { userId: uid, status: { in: ['WON', 'LOST', 'CASHOUT', 'VOID'] }, settledAt: { gte: since } },
+        select: { stake: true, payout: true, status: true, totalOdds: true, type: true, settledAt: true, selections: { select: { sportTitle: true, marketKey: true } } },
+        orderBy: { settledAt: 'asc' },
+        take: 5000,
+      }),
+      prisma.casinoRound.groupBy({ by: ['game'], where: { userId: uid, status: { not: 'ACTIVE' }, finishedAt: { gte: since } }, _sum: { stake: true, payout: true }, _count: { _all: true }, _max: { multiplier: true } }),
+      prisma.bet.aggregate({ where: { userId: uid, status: 'OPEN' }, _sum: { stake: true, potentialPayout: true }, _count: { _all: true } }),
+    ]);
+    let staked = 0;
+    let returned = 0;
+    let won = 0;
+    let lost = 0;
+    let biggest = 0;
+    let bestOdds = 0;
+    let streak = 0;
+    let bestStreak = 0;
+    const byDay = new Map<string, number>();
+    const bySport = new Map<string, { bets: number; staked: number; profit: number }>();
+    const byType = new Map<string, { bets: number; staked: number; profit: number }>();
+    for (const b of bets) {
+      if (b.status === 'VOID') continue;
+      const st = Number(b.stake);
+      const pay = Number(b.payout ?? 0);
+      const pl = pay - st;
+      staked += st;
+      returned += pay;
+      if (pl > 0) {
+        won++;
+        streak++;
+        bestStreak = Math.max(bestStreak, streak);
+        biggest = Math.max(biggest, pay);
+        if (b.status === 'WON') bestOdds = Math.max(bestOdds, Number(b.totalOdds));
+      } else {
+        lost++;
+        streak = 0;
+      }
+      const day = (b.settledAt ?? new Date()).toISOString().slice(0, 10);
+      byDay.set(day, (byDay.get(day) ?? 0) + pl);
+      const sport = b.selections.length === 1 ? b.selections[0].sportTitle : 'Multi-sport parlays';
+      const sp = bySport.get(sport) ?? { bets: 0, staked: 0, profit: 0 };
+      sp.bets++;
+      sp.staked += st;
+      sp.profit += pl;
+      bySport.set(sport, sp);
+      const t = byType.get(b.type) ?? { bets: 0, staked: 0, profit: 0 };
+      t.bets++;
+      t.staked += st;
+      t.profit += pl;
+      byType.set(b.type, t);
+    }
+    let cum = 0;
+    const curve = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([day, pl]) => ({ day, pl: Math.round(pl * 100) / 100, cum: Math.round((cum += pl) * 100) / 100 }));
+    const r2 = (x: number) => Math.round(x * 100) / 100;
+    const casino = rounds
+      .map((g) => ({ game: g.game, rounds: g._count._all, staked: r2(Number(g._sum.stake ?? 0)), profit: r2(Number(g._sum.payout ?? 0) - Number(g._sum.stake ?? 0)), best: Number(g._max.multiplier ?? 0) }))
+      .sort((a, b) => b.staked - a.staked);
+    res.json({
+      days,
+      sports: {
+        bets: won + lost,
+        won,
+        lost,
+        staked: r2(staked),
+        returned: r2(returned),
+        profit: r2(returned - staked),
+        roi: staked > 0 ? r2(((returned - staked) / staked) * 100) : 0,
+        winRate: won + lost > 0 ? r2((won / (won + lost)) * 100) : 0,
+        biggestWin: r2(biggest),
+        bestOdds: r2(bestOdds),
+        bestStreak,
+        open: { bets: open._count._all, staked: r2(Number(open._sum.stake ?? 0)), potential: r2(Number(open._sum.potentialPayout ?? 0)) },
+        curve,
+        bySport: [...bySport.entries()].map(([name, v]) => ({ name, bets: v.bets, staked: r2(v.staked), profit: r2(v.profit) })).sort((a, b) => b.staked - a.staked).slice(0, 8),
+        byType: [...byType.entries()].map(([name, v]) => ({ name, bets: v.bets, staked: r2(v.staked), profit: r2(v.profit) })),
+      },
+      casino: {
+        rounds: casino.reduce((a, g) => a + g.rounds, 0),
+        staked: r2(casino.reduce((a, g) => a + g.staked, 0)),
+        profit: r2(casino.reduce((a, g) => a + g.profit, 0)),
+        games: casino,
+      },
+    });
+  })
+);
 
 r.get(
   '/',

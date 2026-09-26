@@ -108,6 +108,13 @@ export async function voidEvent(eventId: string) {
   return evaluateBets([...new Set<string>(sels.map((s) => s.betId))]);
 }
 
+/** parlays that qualify for Acca Insurance */
+export function accaInsured(bet: { type: string; selections: { odds: unknown }[] }) {
+  return (
+    bet.type === 'PARLAY' && config.accaInsMax > 0 && bet.selections.length >= config.accaInsMinLegs && bet.selections.every((x) => Number(x.odds) >= config.accaInsMinOdds)
+  );
+}
+
 export async function evaluateBets(betIds: string[]) {
   let settled = 0;
   for (const id of betIds) {
@@ -116,6 +123,7 @@ export async function evaluateBets(betIds: string[]) {
     const st = bet.selections.map((s) => s.status);
     let final: BetStatus | null = null;
     let payout = D(0);
+    let insurance: ReturnType<typeof D> | null = null;
 
     if (bet.type === 'BUILDER') {
       // one combined price: every leg must win; any void leg voids the whole builder
@@ -129,8 +137,17 @@ export async function evaluateBets(betIds: string[]) {
         payout = money(D(bet.stake).mul(bet.totalOdds));
         if (payout.gt(config.maxPayout)) payout = D(config.maxPayout);
       }
-    } else if (st.includes('LOST')) final = 'LOST';
-    else if (st.includes('OPEN')) final = null;
+    } else if (st.includes('LOST')) {
+      // Acca Insurance: one losing leg on an insured parlay waits for the other legs
+      const lost = st.filter((x) => x === 'LOST').length;
+      if (lost === 1 && accaInsured(bet) && st.includes('OPEN')) final = null;
+      else {
+        final = 'LOST';
+        if (lost === 1 && accaInsured(bet) && st.filter((x) => x === 'WON').length === st.length - 1) {
+          insurance = money(D(bet.stake).gt(config.accaInsMax) ? D(config.accaInsMax) : D(bet.stake));
+        }
+      }
+    } else if (st.includes('OPEN')) final = null;
     else if (st.every((s) => s === 'VOID')) {
       final = 'VOID';
       payout = D(bet.stake);
@@ -145,9 +162,13 @@ export async function evaluateBets(betIds: string[]) {
     await prisma.$transaction(async (db) => {
       const flipped = await db.bet.updateMany({
         where: { id: bet.id, status: 'OPEN' },
-        data: { status: final!, payout, settledAt: new Date() },
+        data: { status: final!, payout, settledAt: new Date(), ...(insurance ? { insurancePaid: insurance } : {}) },
       });
       if (flipped.count !== 1) return;
+      if (insurance) {
+        await applyBalanceChange(db, { userId: bet.userId, amount: insurance, type: 'BONUS', betId: bet.id, note: `Acca Insurance — ${bet.selections.length}-leg parlay lost by one leg` });
+        await db.user.update({ where: { id: bet.userId }, data: { bonusWagerLeft: { increment: insurance } } });
+      }
       if (final !== 'VOID') await addWager(db, bet.userId, D(bet.stake)); // VIP + bonus wagering
       if (payout.gt(0)) {
         await applyBalanceChange(db, {

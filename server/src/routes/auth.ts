@@ -8,6 +8,7 @@ import { asyncH, HttpError } from '../lib/http';
 import { prisma } from '../lib/prisma';
 import { requireAuth, signAccessToken } from '../middleware/auth';
 import { emailConfigured, sendVerificationEmail } from '../services/email';
+import { tierOf } from '../services/rewards';
 
 const r = Router();
 const COOKIE = 'wb_rt';
@@ -28,6 +29,7 @@ const registerSchema = z.object({
     .regex(/[A-Za-z]/, 'Password needs a letter')
     .regex(/[0-9]/, 'Password needs a number'),
   dateOfBirth: z.coerce.date(),
+  ref: z.string().trim().max(32).optional(),
   country: z.string().length(2).transform((s) => s.toUpperCase()),
   acceptTerms: z.literal(true, { errorMap: () => ({ message: 'You must accept the terms' }) }),
 });
@@ -50,12 +52,16 @@ export function publicUser(u: {
   id: string; email: string; username: string; role: string; balance: unknown; country: string;
   kycStatus: string; selfExcludedUntil: Date | null; dailyDepositLimit: unknown; createdAt: Date;
   emailVerified?: boolean; bonusWagerLeft?: unknown; firstDepositBonusAt?: Date | null;
+  hideInFeed?: boolean; oddsFormat?: string; wagered?: unknown;
 }) {
   return {
     id: u.id, email: u.email, username: u.username, role: u.role, balance: String(u.balance),
     emailVerified: u.emailVerified !== false,
     bonusWagerLeft: String(u.bonusWagerLeft ?? 0),
     firstDepositBonusClaimed: !!u.firstDepositBonusAt,
+    hideInFeed: !!u.hideInFeed,
+    oddsFormat: u.oddsFormat ?? 'decimal',
+    tier: tierOf(Number(u.wagered ?? 0)).tier.id,
     country: u.country, kycStatus: u.kycStatus, selfExcludedUntil: u.selfExcludedUntil,
     dailyDepositLimit: u.dailyDepositLimit == null ? null : String(u.dailyDepositLimit), createdAt: u.createdAt,
   };
@@ -99,8 +105,11 @@ r.post(
         dateOfBirth: body.dateOfBirth,
         country: body.country,
         lastLoginAt: new Date(),
-        // accounts must confirm their e-mail before playing (only when EmailJS is configured)
+        // accounts must confirm their e-mail before playing (only when an e-mail service is configured)
         emailVerified: !emailConfigured(),
+        referredById: body.ref
+          ? (await prisma.user.findFirst({ where: { referralCode: { equals: body.ref, mode: 'insensitive' } }, select: { id: true } }))?.id ?? null
+          : null,
       },
     });
     let sent = false;
@@ -281,6 +290,17 @@ r.post(
     await prisma.refreshToken.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } });
     const accessToken = await issueSession(res, user);
     res.json({ ok: true, accessToken });
+  })
+);
+
+/** Privacy + display preferences */
+r.post(
+  '/preferences',
+  requireAuth,
+  asyncH(async (req, res) => {
+    const b = z.object({ hideInFeed: z.boolean().optional(), oddsFormat: z.enum(['decimal', 'fractional', 'american']).optional() }).parse(req.body);
+    const updated = await prisma.user.update({ where: { id: req.user!.id }, data: b });
+    res.json({ user: publicUser(updated) });
   })
 );
 

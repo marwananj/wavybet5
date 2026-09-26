@@ -98,6 +98,23 @@ export const config = {
   firstDepositWagerX: num('FIRST_DEPOSIT_WAGER_X', 10),
   /** cash out: margin kept on the fair cash-out value */
   cashoutMargin: num('CASHOUT_MARGIN', 0.05),
+  /** Acca Insurance: parlays with ACCA_INS_MIN_LEGS+ legs (each ≥ ACCA_INS_MIN_ODDS) losing by one leg get the stake back as bonus (max ACCA_INS_MAX) */
+  accaInsMinLegs: num('ACCA_INS_MIN_LEGS', 5),
+  accaInsMinOdds: num('ACCA_INS_MIN_ODDS', 1.3),
+  accaInsMax: num('ACCA_INS_MAX', 50),
+  /** referral programme: share of every referred player's wager paid to the referrer */
+  referralRate: num('REFERRAL_RATE', 0.0025),
+  referralMinClaim: num('REFERRAL_MIN_CLAIM', 1),
+  /** daily reward wheel: needs a deposit on record + DAILY_SPIN_MIN_WAGER wagered in the last 7 days */
+  dailySpinEnabled: (process.env.DAILY_SPIN_ENABLED ?? 'true') !== 'false',
+  dailySpinMinWager: num('DAILY_SPIN_MIN_WAGER', 10),
+  /** weekly cashback on last week's net losses (casino + sports) */
+  cashbackRate: num('CASHBACK_RATE', 0.05),
+  cashbackMinLoss: num('CASHBACK_MIN_LOSS', 20),
+  cashbackMax: num('CASHBACK_MAX', 500),
+  /** weekly wager tournament: prize pool (USD) split across the top 10 */
+  tournamentPool: num('TOURNAMENT_POOL', 500),
+  tournamentMinWager: num('TOURNAMENT_MIN_WAGER', 50),
 
   // The Odds API
   oddsApiKey: process.env.ODDS_API_KEY ?? '',

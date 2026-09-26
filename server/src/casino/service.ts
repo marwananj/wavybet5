@@ -23,6 +23,10 @@ export const GAME_NAMES: Record<string, string> = {
   holdem: "Casino Hold'em",
   tower: 'Tower',
   horses: 'Wavy Horse Racing',
+  bomb: 'Wavy Bomb',
+  limbo: 'Limbo',
+  videopoker: 'Video Poker',
+  plinko: 'Plinko',
 };
 
 /* ------------------------------- seeds -------------------------------- */

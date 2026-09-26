@@ -1,3 +1,5 @@
+import { Prisma } from '@prisma/client';
+import { tierOf } from '../services/rewards';
 import { emailProvider, lastEmailFailure, sendVerificationEmail } from '../services/email';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -92,6 +94,117 @@ r.post(
     } catch (e) {
       res.json({ ok: false, provider: emailProvider(), to, error: (e as Error).message, raw: lastEmailFailure });
     }
+  })
+);
+
+/** every sports bet on the site, newest first, with totals for the current filter */
+r.get(
+  '/bets',
+  asyncH(async (req, res) => {
+    const q = z
+      .object({
+        status: z.enum(['all', 'OPEN', 'WON', 'LOST', 'CASHOUT', 'VOID']).default('all'),
+        type: z.enum(['all', 'SINGLE', 'PARLAY', 'BUILDER']).default('all'),
+        q: z.string().trim().max(80).optional(),
+        minStake: z.coerce.number().min(0).optional(),
+        days: z.coerce.number().int().min(1).max(365).default(7),
+        cursor: z.string().optional(),
+      })
+      .parse(req.query);
+    const since = new Date(Date.now() - q.days * 86_400_000);
+    const where: Prisma.BetWhereInput = {
+      createdAt: { gte: since },
+      ...(q.status !== 'all' ? { status: q.status } : {}),
+      ...(q.type !== 'all' ? { type: q.type } : {}),
+      ...(q.minStake ? { stake: { gte: q.minStake } } : {}),
+      ...(q.q
+        ? {
+            OR: [
+              { user: { username: { contains: q.q, mode: 'insensitive' } } },
+              { user: { email: { contains: q.q, mode: 'insensitive' } } },
+              { id: q.q },
+              { selections: { some: { eventLabel: { contains: q.q, mode: 'insensitive' } } } },
+            ],
+          }
+        : {}),
+    };
+    const [bets, byStatus, openAgg, exposure] = await Promise.all([
+      prisma.bet.findMany({
+        where,
+        include: { user: { select: { username: true, email: true, wagered: true } }, selections: true },
+        orderBy: { createdAt: 'desc' },
+        take: 51,
+        ...(q.cursor ? { cursor: { id: q.cursor }, skip: 1 } : {}),
+      }),
+      prisma.bet.groupBy({ by: ['status'], where, _count: { _all: true }, _sum: { stake: true, payout: true } }),
+      prisma.bet.aggregate({ where: { ...where, status: 'OPEN' }, _sum: { potentialPayout: true, stake: true }, _count: { _all: true } }),
+      // biggest open liability per match (all open bets, any date)
+      prisma.betSelection.groupBy({
+        by: ['eventId', 'eventLabel'],
+        where: { status: 'OPEN', bet: { status: 'OPEN' } },
+        _count: { _all: true },
+        orderBy: { _count: { eventId: 'desc' } },
+        take: 8,
+      }),
+    ]);
+    const next = bets.length > 50 ? bets[50].id : null;
+    const list = bets.slice(0, 50);
+    let staked = 0;
+    let paid = 0;
+    let settledStake = 0;
+    const counts: Record<string, number> = {};
+    for (const g of byStatus) {
+      counts[g.status] = g._count._all;
+      staked += Number(g._sum.stake ?? 0);
+      if (g.status !== 'OPEN') {
+        paid += Number(g._sum.payout ?? 0);
+        settledStake += Number(g._sum.stake ?? 0);
+      }
+    }
+    // open liability per match: sum of potential payouts of open bets touching that match
+    const expRows = await Promise.all(
+      exposure.map(async (e) => {
+        const agg = await prisma.bet.aggregate({ where: { status: 'OPEN', selections: { some: { eventId: e.eventId, status: 'OPEN' } } }, _sum: { potentialPayout: true, stake: true } });
+        return { eventId: e.eventId, event: e.eventLabel, bets: e._count._all, stake: Number(agg._sum.stake ?? 0), liability: Number(agg._sum.potentialPayout ?? 0) };
+      })
+    );
+    res.json({
+      bets: list.map((b) => ({
+        id: b.id,
+        type: b.type,
+        status: b.status,
+        stake: String(b.stake),
+        totalOdds: String(b.totalOdds),
+        potentialPayout: String(b.potentialPayout),
+        payout: b.payout == null ? null : String(b.payout),
+        createdAt: b.createdAt,
+        settledAt: b.settledAt,
+        user: { username: b.user.username, email: b.user.email, tier: tierOf(Number(b.user.wagered)).tier.id },
+        live: b.selections.some((s) => s.commenceTime <= b.createdAt),
+        selections: b.selections.map((s) => ({
+          id: s.id,
+          eventLabel: s.eventLabel,
+          sportTitle: s.sportTitle,
+          marketKey: s.marketKey,
+          outcomeName: s.outcomeName,
+          odds: String(s.odds),
+          status: s.status,
+          commenceTime: s.commenceTime,
+        })),
+      })),
+      next,
+      summary: {
+        count: Object.values(counts).reduce((a, b) => a + b, 0),
+        counts,
+        staked: Math.round(staked * 100) / 100,
+        paid: Math.round(paid * 100) / 100,
+        ggr: Math.round((settledStake - paid) * 100) / 100,
+        openCount: openAgg._count._all,
+        openStake: Number(openAgg._sum.stake ?? 0),
+        openLiability: Number(openAgg._sum.potentialPayout ?? 0),
+      },
+      exposure: expRows.sort((a, b) => b.liability - a.liability),
+    });
   })
 );
 

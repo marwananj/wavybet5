@@ -43,9 +43,20 @@ r.get(
         status: z.enum(['upcoming', 'live', 'all']).default('upcoming'),
         q: z.string().max(60).optional(),
         limit: z.coerce.number().int().min(1).max(200).default(60),
+        ids: z.string().max(2000).optional(),
       })
       .parse(req.query);
     const now = new Date();
+    // favourites: fetch exactly these matches (still open or live)
+    if (q.ids) {
+      const ids = q.ids.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 60);
+      const favs = await prisma.event.findMany({
+        where: { id: { in: ids }, status: { in: ['UPCOMING', 'LIVE'] } },
+        include: eventInclude,
+        orderBy: { commenceTime: 'asc' },
+      });
+      return res.json({ events: favs.map((e) => serializeEvent(e, { lite: true })) });
+    }
     const events = await prisma.event.findMany({
       where: {
         ...(q.sport ? { sportKey: q.sport } : {}),

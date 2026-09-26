@@ -31,7 +31,11 @@ export function tierOf(wagered: number) {
 export async function addWager(db: Tx, userId: string, amount: Prisma.Decimal | number) {
   const a = D(amount);
   if (!a.gt(0)) return;
-  const u = await db.user.update({ where: { id: userId }, data: { wagered: { increment: a } }, select: { bonusWagerLeft: true } });
+  const u = await db.user.update({ where: { id: userId }, data: { wagered: { increment: a } }, select: { bonusWagerLeft: true, referredById: true } });
+  // referral commission for whoever invited this player
+  if (u.referredById && config.referralRate > 0) {
+    await db.user.updateMany({ where: { id: u.referredById }, data: { referralEarned: { increment: a.mul(config.referralRate) } } });
+  }
   if (D(u.bonusWagerLeft).gt(0)) {
     const left = D(u.bonusWagerLeft).sub(a);
     await db.user.update({ where: { id: userId }, data: { bonusWagerLeft: left.gt(0) ? money(left) : D(0) } });

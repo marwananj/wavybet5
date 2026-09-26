@@ -3,9 +3,10 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { asyncH, HttpError } from '../lib/http';
 import { prisma } from '../lib/prisma';
-import { requireAdmin, requireAuth } from '../middleware/auth';
+import { optionalAuth, requireAdmin, requireAuth } from '../middleware/auth';
 import { GAME_NAMES } from '../casino/service';
 import { tierOf } from '../services/rewards';
+import { outcomeOpen } from '../services/open';
 import { broadcast, streamClientCount } from '../services/stream';
 
 /**
@@ -18,60 +19,168 @@ const mask = (name: string) => (name.length <= 3 ? `${name[0]}**` : `${name.slic
 
 /* ─────────────────────────────── bet feed ─────────────────────────────── */
 
+const displayName = (u: { username: string; hideInFeed: boolean }, own: boolean) => (own || !u.hideInFeed ? u.username : 'Hidden');
+const feedUser = { select: { username: true, wagered: true, hideInFeed: true } } as const;
+
 r.get(
   '/feed',
+  optionalAuth,
   asyncH(async (req, res) => {
-    const q = z.object({ tab: z.enum(['all', 'high', 'mine']).default('all') }).parse(req.query);
+    const q = z.object({ tab: z.enum(['all', 'high', 'mine', 'sports', 'casino']).default('all') }).parse(req.query);
     let userId: string | undefined;
     if (q.tab === 'mine') {
-      // optional auth: reuse the auth middleware
-      await new Promise<void>((resolve, reject) => requireAuth(req, res, (e?: unknown) => (e ? reject(e) : resolve())));
-      userId = req.user!.id;
+      if (!req.user) throw new HttpError(401, 'Not authenticated');
+      userId = req.user.id;
     }
     const high = q.tab === 'high' ? { gte: 100 } : undefined;
     const [rounds, bets] = await Promise.all([
-      prisma.casinoRound.findMany({
-        where: { status: { not: 'ACTIVE' }, ...(userId ? { userId } : {}), ...(high ? { stake: high } : {}) },
-        include: { user: { select: { username: true, wagered: true } } },
-        orderBy: { createdAt: 'desc' },
-        take: 20,
-      }),
-      prisma.bet.findMany({
-        where: { status: { in: ['WON', 'LOST', 'CASHOUT'] }, ...(userId ? { userId } : {}), ...(high ? { stake: high } : {}) },
-        include: { user: { select: { username: true, wagered: true } }, selections: { take: 1, select: { eventLabel: true } } },
-        orderBy: { settledAt: 'desc' },
-        take: 20,
-      }),
+      q.tab === 'sports'
+        ? Promise.resolve([])
+        : prisma.casinoRound.findMany({
+            where: { status: { not: 'ACTIVE' }, ...(userId ? { userId } : {}), ...(high ? { stake: high } : {}) },
+            include: { user: feedUser },
+            orderBy: { createdAt: 'desc' },
+            take: 25,
+          }),
+      q.tab === 'casino'
+        ? Promise.resolve([])
+        : prisma.bet.findMany({
+            // every sports bet shows as soon as it is placed (open), then again with its result
+            where: { ...(userId ? { userId } : {}), ...(high ? { stake: high } : {}), status: { not: 'VOID' } },
+            include: {
+              user: feedUser,
+              selections: { select: { outcomeId: true, eventId: true, eventLabel: true, sportTitle: true, marketKey: true, outcomeName: true, odds: true, status: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 25,
+          }),
     ]);
     const rows = [
-      ...rounds.map((x) => ({
-        id: x.id,
-        kind: 'casino' as const,
-        game: GAME_NAMES[x.game] ?? x.game,
-        gameId: x.game,
-        user: userId ? x.user.username : mask(x.user.username),
-        tier: tierOf(Number(x.user.wagered)).tier.id,
-        at: x.finishedAt ?? x.createdAt,
-        stake: String(x.stake),
-        multiplier: Number(x.multiplier),
-        payout: String(x.payout),
-      })),
-      ...bets.map((b) => ({
-        id: b.id,
-        kind: 'sport' as const,
-        game: b.type === 'PARLAY' ? 'Parlay' : b.type === 'BUILDER' ? 'Bet Builder' : b.selections[0]?.eventLabel ?? 'Sports',
-        gameId: 'sports',
-        user: userId ? b.user.username : mask(b.user.username),
-        tier: tierOf(Number(b.user.wagered)).tier.id,
-        at: b.settledAt ?? b.createdAt,
-        stake: String(b.stake),
-        multiplier: Number(b.payout ?? 0) / Number(b.stake),
-        payout: String(b.payout ?? 0),
-      })),
+      ...rounds.map((x) => {
+        const t = tierOf(Number(x.user.wagered)).tier;
+        return {
+          id: x.id,
+          kind: 'casino' as const,
+          game: GAME_NAMES[x.game] ?? x.game,
+          gameId: x.game,
+          user: displayName(x.user, x.userId === req.user?.id),
+          hidden: x.user.hideInFeed,
+          tier: t.id,
+          tierName: t.name,
+          at: x.finishedAt ?? x.createdAt,
+          stake: String(x.stake),
+          multiplier: Number(x.multiplier),
+          payout: String(x.payout),
+          status: x.status,
+        };
+      }),
+      ...bets.map((b) => {
+        const t = tierOf(Number(b.user.wagered)).tier;
+        return {
+          id: b.id,
+          kind: 'sport' as const,
+          game: b.type === 'PARLAY' ? `Parlay · ${b.selections.length} legs` : b.type === 'BUILDER' ? 'Bet Builder' : b.selections[0]?.eventLabel ?? 'Sports',
+          gameId: 'sports',
+          user: displayName(b.user, b.userId === req.user?.id),
+          hidden: b.user.hideInFeed,
+          tier: t.id,
+          tierName: t.name,
+          at: b.status === 'OPEN' ? b.createdAt : b.settledAt ?? b.createdAt,
+          stake: String(b.stake),
+          multiplier: b.status === 'OPEN' ? Number(b.totalOdds) : Number(b.payout ?? 0) / Number(b.stake),
+          payout: String(b.status === 'OPEN' ? b.potentialPayout : b.payout ?? 0),
+          status: b.status,
+          odds: Number(b.totalOdds),
+          // selections so other players can copy the bet
+          picks:
+            b.type === 'BUILDER'
+              ? undefined
+              : b.selections.map((s) => ({ outcomeId: s.outcomeId, eventId: s.eventId, eventLabel: s.eventLabel, sportTitle: s.sportTitle, marketKey: s.marketKey, outcomeName: s.outcomeName, odds: Number(s.odds), status: s.status })),
+        };
+      }),
     ]
       .sort((a, b) => +new Date(b.at) - +new Date(a.at))
-      .slice(0, 20);
+      .slice(0, 25);
     res.json({ rows });
+  })
+);
+
+/** most-backed selections right now (open markets only) */
+let trendCache: { at: number; data: unknown } | null = null;
+r.get(
+  '/trending',
+  asyncH(async (_req, res) => {
+    if (trendCache && Date.now() - trendCache.at < 60_000) return res.json(trendCache.data);
+    const since = new Date(Date.now() - 24 * 3600_000);
+    const groups = await prisma.betSelection.groupBy({
+      by: ['outcomeId'],
+      where: { bet: { createdAt: { gte: since } }, status: 'OPEN' },
+      _count: { _all: true },
+      _sum: { odds: true },
+      orderBy: { _count: { outcomeId: 'desc' } },
+      take: 30,
+    });
+    const outcomes = await prisma.outcome.findMany({ where: { id: { in: groups.map((g) => g.outcomeId) } }, include: { market: { include: { event: true } } } });
+    const now = new Date();
+    const byId = new Map(outcomes.map((o) => [o.id, o]));
+    const picks = groups
+      .map((g) => {
+        const o = byId.get(g.outcomeId);
+        if (!o || !outcomeOpen(o, now)) return null;
+        const ev = o.market.event;
+        return {
+          outcomeId: o.id,
+          eventId: ev.id,
+          eventLabel: `${ev.homeTeam} vs ${ev.awayTeam}`,
+          homeTeam: ev.homeTeam,
+          awayTeam: ev.awayTeam,
+          sportTitle: ev.sportTitle,
+          commenceTime: ev.commenceTime,
+          live: ev.status === 'LIVE',
+          marketKey: o.market.key,
+          outcomeName: o.name,
+          odds: Number(o.price),
+          bets: g._count._all,
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 12);
+    const data = { picks };
+    trendCache = { at: Date.now(), data };
+    res.json(data);
+  })
+);
+
+/** public player card (hidden players are private) */
+r.get(
+  '/players/:name',
+  asyncH(async (req, res) => {
+    const u = await prisma.user.findFirst({
+      where: { username: { equals: String(req.params.name), mode: 'insensitive' } },
+      select: { id: true, username: true, wagered: true, hideInFeed: true, createdAt: true, role: true },
+    });
+    if (!u || u.hideInFeed) throw new HttpError(404, 'This player keeps their profile private');
+    const [bets, rounds, bestRound, bestBet, fav] = await Promise.all([
+      prisma.bet.count({ where: { userId: u.id } }),
+      prisma.casinoRound.count({ where: { userId: u.id, status: { not: 'ACTIVE' } } }),
+      prisma.casinoRound.findFirst({ where: { userId: u.id, status: { in: ['WON', 'CASHED'] } }, orderBy: { multiplier: 'desc' }, select: { game: true, multiplier: true, payout: true } }),
+      prisma.bet.findFirst({ where: { userId: u.id, status: 'WON' }, orderBy: { totalOdds: 'desc' }, select: { totalOdds: true, payout: true, type: true } }),
+      prisma.casinoRound.groupBy({ by: ['game'], where: { userId: u.id }, _count: { _all: true }, orderBy: { _count: { game: 'desc' } }, take: 1 }),
+    ]);
+    const t = tierOf(Number(u.wagered));
+    res.json({
+      username: u.username,
+      staff: u.role === 'ADMIN',
+      tier: t.tier,
+      next: t.next,
+      progress: t.progress,
+      joined: u.createdAt,
+      bets,
+      rounds,
+      favouriteGame: fav[0] ? GAME_NAMES[fav[0].game] ?? fav[0].game : null,
+      bestCasino: bestRound ? { game: GAME_NAMES[bestRound.game] ?? bestRound.game, multiplier: Number(bestRound.multiplier), payout: Number(bestRound.payout) } : null,
+      bestSports: bestBet ? { odds: Number(bestBet.totalOdds), payout: Number(bestBet.payout ?? 0), type: bestBet.type } : null,
+    });
   })
 );
 
