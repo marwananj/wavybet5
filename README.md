@@ -53,6 +53,16 @@ Pre-match and in-play (API-Football), each only when the feed prices it:
 - **Match tracker:** `/api/events/:id/tracker` — goals, cards, subs, VAR and live stats from `/fixtures?id=`, cached `TRACKER_CACHE_MS` per match. The pitch states are derived from that data: *Dangerous attack* = the team that had a shot or corner in the last ~90 s, *Attack* = clear possession edge, otherwise *Ball safe*.
 - **Admin → `/api/admin/feed-bet-types`** lists every bet name the odds feeds have sent and which market it maps to (useful if a bookmaker renames a market).
 
+## Accounts, rewards & community
+
+- **Email verification (EmailJS):** new players get a 6-digit code by email (15 min, 5 tries, resend after 60 s) and must verify before depositing, betting or playing. Set `EMAILJS_SERVICE_ID`, `EMAILJS_TEMPLATE_ID`, `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY` (Render env only — never in GitHub). In EmailJS: *Account → Security → allow API for non-browser applications*; template "To Email" = `{{to_email}}`, body uses `{{username}}`, `{{code}}`, `{{minutes}}`. Without keys, verification is skipped and codes are printed in the server log.
+- **Limits:** `MAX_STAKE` / `CASINO_MAX_STAKE` (3000) and `MAX_PAYOUT` / `CASINO_MAX_PAYOUT` (200000).
+- **VIP booster:** tiers Bronze → Wavy Elite by lifetime wager; every `WAGER_REWARD_STEP` ($5,000) wagered pays `WAGER_REWARD_AMOUNT` ($20) real balance, claimed on `/vip`.
+- **First deposit gift:** `FIRST_DEPOSIT_BONUS` ($25) on the first deposit ≥ `FIRST_DEPOSIT_MIN`; withdrawals unlock after wagering `FIRST_DEPOSIT_WAGER_X` × the gift.
+- **Cash out:** singles, parlays and builders with open legs; value from current prices minus `CASHOUT_MARGIN`, live delay applied, accepted if the value moved ≤ 2%.
+- **Tips of the day:** `/tips` — strongest-rated picks from margin-free prices plus a 3-leg acca, refreshed every 30 min.
+- **Bet feed, community chat & live support:** chat is rate-limited with link filter and admin mute/delete; support threads are answered from *Admin → Support*.
+
 ## Wavy Originals (casino)
 
 Twelve in-house games at `/casino`, all on the same wallet and ledger (`CASINO_BET` / `CASINO_WIN` transactions):
