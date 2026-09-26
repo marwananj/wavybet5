@@ -22,4 +22,6 @@ COPY --from=server /app/server /app/server
 COPY --from=client /app/client/dist /app/client/dist
 WORKDIR /app/server
 EXPOSE 4000
-CMD ["sh", "-c", "npx prisma db push --skip-generate && node dist/seed.js || true; node dist/index.js"]
+# --accept-data-loss: needed for additive changes Prisma flags as "warnings" (e.g. a new unique column).
+# Without it the schema update is refused and the API would run against an out-of-date database.
+CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss || echo '!!! DATABASE SCHEMA UPDATE FAILED — see the error above'; node dist/seed.js || true; node dist/index.js"]
