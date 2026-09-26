@@ -28,6 +28,11 @@ export function addStreamClient(req: Request, res: Response) {
 
 export const streamClientCount = () => clients.size;
 
+/** Push any named event to every connected browser (chat messages, support hints, bet feed). */
+export function broadcast(event: string, data: unknown) {
+  send(event, data);
+}
+
 function send(event: string, data: unknown) {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const c of clients) {
