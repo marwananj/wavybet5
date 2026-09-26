@@ -370,7 +370,7 @@ r.get(
     if (!boardCache || Date.now() - boardCache.at > 60_000) {
       const { rows } = await leaderboard(start, end, 50);
       const prevKey = weekKey(new Date(start.getTime() - WEEK));
-      const winners = await prisma.tournamentPayout.findMany({ where: { week: prevKey }, orderBy: { rank: 'asc' }, include: {} });
+      const winners = await prisma.tournamentPayout.findMany({ where: { week: prevKey }, orderBy: { rank: 'asc' } });
       const wu = await prisma.user.findMany({ where: { id: { in: winners.map((w) => w.userId) } }, select: { id: true, username: true } });
       const wn = new Map(wu.map((u) => [u.id, u.username]));
       boardCache = {

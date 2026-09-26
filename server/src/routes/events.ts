@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { config } from '../config';
 import { asyncH, HttpError } from '../lib/http';
-import { outcomeOpen } from '../services/open';
+import { liveNowWhere, outcomeOpen } from '../services/open';
 import { eventInclude, serializeEvent } from '../services/serialize';
 import { addStreamClient } from '../services/stream';
 import { prisma } from '../lib/prisma';
@@ -21,10 +21,7 @@ r.get(
     const counts = await prisma.event.groupBy({
       by: ['sportKey'],
       where: {
-        OR: [
-          { status: 'UPCOMING', commenceTime: { gt: new Date() } },
-          { status: 'LIVE' },
-        ],
+        OR: [{ status: 'UPCOMING', commenceTime: { gt: new Date() } }, liveNowWhere()],
       },
       _count: { _all: true },
     });
@@ -64,8 +61,8 @@ r.get(
         ...(q.status === 'upcoming'
           ? { status: 'UPCOMING', commenceTime: { gt: now } }
           : q.status === 'live'
-          ? { status: 'LIVE' }
-          : { status: { in: ['UPCOMING', 'LIVE'] } }),
+          ? liveNowWhere(now)
+          : { AND: [{ OR: [{ status: 'UPCOMING' as const, commenceTime: { gt: now } }, liveNowWhere(now)] }] }),
         ...(q.q
           ? { OR: [{ homeTeam: { contains: q.q, mode: 'insensitive' } }, { awayTeam: { contains: q.q, mode: 'insensitive' } }, { sportTitle: { contains: q.q, mode: 'insensitive' } }] }
           : {}),

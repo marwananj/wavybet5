@@ -63,6 +63,13 @@ Pre-match and in-play (API-Football), each only when the feed prices it:
 - **Tips of the day:** `/tips` — strongest-rated picks from margin-free prices plus a 3-leg acca, refreshed every 30 min.
 - **Bet feed, community chat & live support:** chat is rate-limited with link filter and admin mute/delete; support threads are answered from *Admin → Support*.
 
+## Live engine notes
+
+- A match only appears under **Live** while it is really in play: status LIVE, kicked off < 4 h ago and still receiving score/odds updates (≤ 6 min old). Delayed kick-offs stay "upcoming" (their pre-match prices still close at the scheduled time).
+- When a match drops out of the in-play feed the engine checks it within seconds (`afCheckFixtures`): finished → COMPLETED and settled, abandoned → void, postponed → back to upcoming.
+- Goal lock: `LIVE_GOAL_COOLDOWN_MS` (default **10 s**); fresh prices are fetched the moment the lock ends so markets reopen immediately.
+- 1st-half markets stay open until 43': if the live feed doesn't price them, they are modelled from the live 1X2 + goals line (Poisson, remaining-time split) with `LIVE_MARGIN`.
+
 ## Slots, Wavy TV & social betting
 
 - **Wavy Slots** (`/casino/slot-fruits`, `slot-gems`, `slot-pharaoh`): original 5×3, 20-line machines with wilds, scatter-triggered free spins (×2 / ×3, retriggers, capped at 100) and animated 3D reels, autoplay, turbo and paytable. One provably fair float per reel per spin; free spins are resolved in the same round. RTP ≈ 96% each (measured over 2M simulated spins per machine; `PAY_SCALE` in `server/src/casino/engine/slots.ts` holds the tuned factors).

@@ -26,3 +26,16 @@ export function outcomeOpen(
   return o.active && !o.suspended && !o.market.suspended && eventOpen(o.market.event, now);
 }
 
+
+/**
+ * "Really in play right now": LIVE, kicked off less than 4 hours ago and still receiving score/odds
+ * updates. Finished matches drop out of the live lists even before the result job has settled them.
+ */
+export const liveNowWhere = (now = new Date()) => {
+  const fresh = new Date(now.getTime() - 6 * 60_000);
+  return {
+    status: 'LIVE' as const,
+    commenceTime: { gte: new Date(now.getTime() - 4 * 3600_000) },
+    AND: [{ OR: [{ lastScoreSync: { gte: fresh } }, { liveUpdatedAt: { gte: fresh } }, { NOT: { id: { startsWith: 'af_' } } }] }],
+  };
+};

@@ -341,32 +341,14 @@ export async function afSyncOdds() {
 
 /* ------------------------------ Live + results ---------------------------- */
 
-export async function afSyncScores() {
+/**
+ * Look up these fixtures and apply what the feed says: finished → COMPLETED + settle, abandoned → void,
+ * postponed → back to upcoming, kicked off → LIVE. Used by the scores cron and, within seconds, by the
+ * live engine whenever a match drops out of the in-play list.
+ */
+export async function afCheckFixtures(ids: string[]) {
   const now = new Date();
-  // kick-off passed -> live + suspend markets (pre-match book)
-  await prisma.event.updateMany({ where: { id: { startsWith: 'af_' }, status: 'UPCOMING', commenceTime: { lte: now } }, data: { status: 'LIVE' } });
-  // pre-match prices lock at kick-off until live prices arrive (the live engine owns them after that)
-  await prisma.market.updateMany({ where: { event: { status: 'LIVE', liveUpdatedAt: null }, suspended: false }, data: { suspended: true } });
-  invalidateMarkets();
-
-  // 1 request: everything currently in play in our leagues
-  const sports = await prisma.sport.findMany({ where: { provider: 'apifootball', enabled: true } });
-  if (sports.length) {
-    try {
-      const live = await af<AfFixture>('/fixtures', { live: sports.map((s) => s.key.replace('soccer_af_', '')).join('-'), timezone: 'UTC' });
-      for (const f of live.response) {
-        const s = sports.find((x) => x.key === sportKey(f.league.id));
-        if (s) await upsertFixture(f, s.title, s.key);
-      }
-    } catch (e) {
-      console.error('[api-football] live', (e as Error).message);
-    }
-  }
-
-  const watch = await prisma.event.findMany({
-    where: { id: { startsWith: 'af_' }, status: 'LIVE', commenceTime: { gte: new Date(Date.now() - 7 * 86400_000) } },
-    select: { id: true, commenceTime: true },
-  });
+  const watch = ids.map((id) => ({ id }));
   let settled = 0;
   for (let i = 0; i < watch.length; i += 20) {
     const chunk = watch.slice(i, i + 20);
@@ -409,6 +391,9 @@ export async function afSyncScores() {
           settled += await voidEvent(id); // postponed with no new date for 48h
         }
       } else {
+        if (LIVE.has(st)) {
+          await prisma.event.updateMany({ where: { id, status: 'UPCOMING' }, data: { status: 'LIVE' } });
+        }
         const corners = cornersOf(f);
         const ht = f.score.halftime;
         if (corners || (ht && ht.home != null)) {
@@ -433,5 +418,39 @@ export async function afSyncScores() {
       }
     }
   }
+  return settled;
+}
+
+export async function afSyncScores() {
+  const now = new Date();
+  // A match only becomes LIVE when the feed says it kicked off (delayed kick-offs stay "upcoming";
+  // their pre-match prices already close at the scheduled time — see eventOpen()).
+  // pre-match prices lock at kick-off until live prices arrive (the live engine owns them after that)
+  await prisma.market.updateMany({ where: { event: { status: 'LIVE', liveUpdatedAt: null }, suspended: false }, data: { suspended: true } });
+  invalidateMarkets();
+
+  // 1 request: everything currently in play in our leagues
+  const sports = await prisma.sport.findMany({ where: { provider: 'apifootball', enabled: true } });
+  if (sports.length) {
+    try {
+      const live = await af<AfFixture>('/fixtures', { live: sports.map((s) => s.key.replace('soccer_af_', '')).join('-'), timezone: 'UTC' });
+      for (const f of live.response) {
+        const s = sports.find((x) => x.key === sportKey(f.league.id));
+        if (s) await upsertFixture(f, s.title, s.key);
+      }
+    } catch (e) {
+      console.error('[api-football] live', (e as Error).message);
+    }
+  }
+
+  const watch = await prisma.event.findMany({
+    where: {
+      id: { startsWith: 'af_' },
+      commenceTime: { gte: new Date(Date.now() - 7 * 86400_000) },
+      OR: [{ status: 'LIVE' }, { status: 'UPCOMING', commenceTime: { lte: now } }],
+    },
+    select: { id: true },
+  });
+  const settled = await afCheckFixtures(watch.map((e) => e.id));
   return settled;
 }

@@ -1,9 +1,10 @@
 import { config } from '../config';
 import { D, prisma } from '../lib/prisma';
-import { af } from './apifootball';
+import { af, afCheckFixtures } from './apifootball';
 import { broadcastEvents } from './stream';
 import { classifyBet, dcCode, invalidateMarkets, noteBetType, parseLine, parseScore, saveMarket, side3, type MarketKey, type OutcomeIn } from './markets';
 import { applyEarlyPayout } from './settlement';
+import { modelFirstHalf } from './liveModel';
 
 /**
  * In-play engine.
@@ -39,7 +40,7 @@ const livePrice = (odd: string) => {
   return Math.max(1.01, Math.round(p * (1 - config.liveMargin) * 100) / 100);
 };
 
-function buildLiveMarkets(item: LiveItem, home: string, away: string, minute: number | null): LiveMarket[] {
+function buildLiveMarkets(item: LiveItem, home: string, away: string, minute: number | null, score: [number, number] | null = null): LiveMarket[] {
   // group the feed's bets by our market key (a feed can list the same market under two names)
   const byKey = new Map<MarketKey, LiveValue[]>();
   for (const bet of item.odds ?? []) {
@@ -131,6 +132,32 @@ function buildLiveMarkets(item: LiveItem, home: string, away: string, minute: nu
   }
   lines('corners_totals', 3, true);
   three('corners_h2h');
+
+  // 1st-half markets stay open all through the first half: if the feed doesn't price them, model them
+  // from the live match-result + goals prices (they close at 43', same as the feed's own).
+  if (minute != null && minute < 43 && score && !out.some((m) => m.key === 'ht_h2h')) {
+    const h2h = out.find((m) => m.key === 'h2h');
+    const hp = h2h?.outcomes.find((o) => o.code === 'home')?.price;
+    const dp = h2h?.outcomes.find((o) => o.code === 'draw')?.price;
+    const ap = h2h?.outcomes.find((o) => o.code === 'away')?.price;
+    if (hp && dp && ap) {
+      const tot = out.find((m) => m.key === 'totals');
+      let totals: { line: number; over: number; under: number } | undefined;
+      if (tot) {
+        const lines = [...new Set(tot.outcomes.map((o) => o.point).filter((p): p is number => p != null))];
+        const pick = lines
+          .map((l) => ({ l, o: tot.outcomes.find((x) => x.code === `over_${l}`)?.price, u: tot.outcomes.find((x) => x.code === `under_${l}`)?.price }))
+          .filter((x) => x.o && x.u)
+          .sort((a, b) => Math.abs(a.o! - a.u!) - Math.abs(b.o! - b.u!))[0];
+        if (pick) totals = { line: pick.l, over: pick.o!, under: pick.u! };
+      }
+      const m = modelFirstHalf({ minute, home, away, score, h2h: { home: hp, draw: dp, away: ap }, totals });
+      if (m) {
+        out.push({ key: 'ht_h2h', outcomes: m.ht_h2h });
+        if (m.ht_totals.length) out.push({ key: 'ht_totals', outcomes: m.ht_totals });
+      }
+    }
+  }
   return out;
 }
 
@@ -143,6 +170,16 @@ async function saveLiveMarkets(eventId: string, markets: LiveMarket[], lockAll: 
     await prisma.market.updateMany({ where: { eventId, key: { in: gone }, suspended: false }, data: { suspended: true } });
     invalidateMarkets([eventId]);
   }
+}
+
+/** after a goal lock, fetch fresh prices the moment the lock ends so markets reopen right away */
+let reopenTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleReopen() {
+  if (reopenTimer) return;
+  reopenTimer = setTimeout(() => {
+    reopenTimer = null;
+    syncLiveOdds().catch((e) => console.error('[live] reopen sync failed', (e as Error).message));
+  }, config.liveGoalCooldownMs + 400);
 }
 
 const keysByEvent = new Map<string, string[]>();
@@ -176,7 +213,10 @@ export async function syncLiveOdds() {
       const oh = item.teams?.home?.goals, oa = item.teams?.away?.goals;
       const feedGoal = ev.homeScore != null && ev.awayScore != null && oh != null && oa != null && (oh > ev.homeScore || oa > ev.awayScore);
       let cooldownUntil = ev.liveSuspendedUntil;
-      if (feedGoal && !(cooldownUntil && cooldownUntil > now)) cooldownUntil = new Date(now.getTime() + config.liveGoalCooldownMs);
+      if (feedGoal && !(cooldownUntil && cooldownUntil > now)) {
+        cooldownUntil = new Date(now.getTime() + config.liveGoalCooldownMs);
+        scheduleReopen();
+      }
       const inCooldown = !!cooldownUntil && cooldownUntil > now;
       const elapsed = ev.liveElapsed;
       const blocked = !!(item.status?.blocked || item.status?.stopped || item.status?.finished) || (elapsed != null && elapsed >= config.liveCutoffMinute);
@@ -185,7 +225,7 @@ export async function syncLiveOdds() {
         where: { id },
         data: { status: 'LIVE', liveUpdatedAt: now, liveSuspendedUntil: cooldownUntil, liveBlocked: blocked },
       });
-      const markets = buildLiveMarkets(item, ev.homeTeam, ev.awayTeam, elapsed);
+      const markets = buildLiveMarkets(item, ev.homeTeam, ev.awayTeam, elapsed, ev.homeScore != null && ev.awayScore != null ? [ev.homeScore, ev.awayScore] : null);
       const existing = keysByEvent.get(id) ?? (await prisma.market.findMany({ where: { eventId: id }, select: { key: true } })).map((m) => m.key);
       await saveLiveMarkets(id, markets, blocked || inCooldown, existing);
       keysByEvent.set(id, [...new Set([...existing, ...markets.map((m) => m.key)])]);
@@ -218,6 +258,7 @@ interface LiveFixture {
 const IN_PLAY = new Set(['1H', 'HT', '2H', 'ET', 'BT', 'P', 'SUSP', 'INT', 'LIVE']);
 
 let scoresRunning = false;
+const lastGoneCheck = new Map<string, number>();
 export async function syncLiveScores() {
   if (scoresRunning) return 0;
   scoresRunning = true;
@@ -225,6 +266,22 @@ export async function syncLiveScores() {
     const now = new Date();
     const d = await af<LiveFixture>('/fixtures', { live: 'all', timezone: 'UTC' });
     const ids = d.response.map((f) => `af_${f.fixture.id}`);
+    // matches we show as live that dropped out of the in-play list → finished / abandoned: settle within seconds
+    const inPlay = new Set(d.response.filter((f) => IN_PLAY.has(f.fixture.status.short)).map((f) => `af_${f.fixture.id}`));
+    const ours = await prisma.event.findMany({ where: { id: { startsWith: 'af_' }, status: 'LIVE' }, select: { id: true } });
+    const gone = ours.map((e) => e.id).filter((id) => !inPlay.has(id) && Date.now() - (lastGoneCheck.get(id) ?? 0) > 45_000);
+    if (gone.length) {
+      gone.forEach((id) => lastGoneCheck.set(id, Date.now()));
+      if (lastGoneCheck.size > 2000) lastGoneCheck.clear();
+      afCheckFixtures(gone)
+        .then(async (n) => {
+          if (n) console.log(`[live] ${gone.length} match(es) left play — settled ${n} bet(s)`);
+          await prisma.market.updateMany({ where: { eventId: { in: gone }, event: { status: { not: 'LIVE' } } }, data: { suspended: true } });
+          invalidateMarkets(gone);
+          await broadcastEvents(gone);
+        })
+        .catch((e) => console.error('[live] finish check failed', (e as Error).message));
+    }
     if (!ids.length) return 0;
     const known = await prisma.event.findMany({ where: { id: { in: ids } } });
     const byId = new Map(known.map((e) => [e.id, e]));
@@ -247,6 +304,7 @@ export async function syncLiveScores() {
       if (goal) {
         await prisma.market.updateMany({ where: { eventId: ev.id }, data: { suspended: true } });
         invalidateMarkets([ev.id]);
+        scheduleReopen();
       }
       if (goal && hs != null && as != null) await applyEarlyPayout(ev.id, hs, as);
       if (goal || hs !== ev.homeScore || as !== ev.awayScore || minute !== ev.liveElapsed) changed.push(ev.id);

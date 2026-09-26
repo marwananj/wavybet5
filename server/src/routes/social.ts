@@ -34,17 +34,13 @@ r.get(
     }
     const high = q.tab === 'high' ? { gte: 100 } : undefined;
     const [rounds, bets] = await Promise.all([
-      q.tab === 'sports'
-        ? Promise.resolve([])
-        : prisma.casinoRound.findMany({
+      prisma.casinoRound.findMany({
             where: { status: { not: 'ACTIVE' }, ...(userId ? { userId } : {}), ...(high ? { stake: high } : {}) },
             include: { user: feedUser },
             orderBy: { createdAt: 'desc' },
-            take: 25,
+            take: q.tab === 'sports' ? 0 : 25,
           }),
-      q.tab === 'casino'
-        ? Promise.resolve([])
-        : prisma.bet.findMany({
+      prisma.bet.findMany({
             // every sports bet shows as soon as it is placed (open), then again with its result
             where: { ...(userId ? { userId } : {}), ...(high ? { stake: high } : {}), status: { not: 'VOID' } },
             include: {
@@ -52,7 +48,7 @@ r.get(
               selections: { select: { outcomeId: true, eventId: true, eventLabel: true, sportTitle: true, marketKey: true, outcomeName: true, odds: true, status: true } },
             },
             orderBy: { createdAt: 'desc' },
-            take: 25,
+            take: q.tab === 'casino' ? 0 : 25,
           }),
     ]);
     const rows = [

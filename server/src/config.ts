@@ -62,7 +62,7 @@ export const config = {
   /** Official live score + match minute refresh (fixtures feed) */
   liveScoreIntervalMs: num('LIVE_SCORE_INTERVAL_MS', 10000),
   liveStaleMs: num('LIVE_STALE_MS', 30000),
-  liveGoalCooldownMs: num('LIVE_GOAL_COOLDOWN_MS', 45000),
+  liveGoalCooldownMs: num('LIVE_GOAL_COOLDOWN_MS', 10000),
   liveBetDelayMs: num('LIVE_BET_DELAY_MS', 5000),
   liveCutoffMinute: num('LIVE_CUTOFF_MINUTE', 89),
   liveMargin: num('LIVE_MARGIN', 0.06),
